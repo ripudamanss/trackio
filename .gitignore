@@ -1,0 +1,40 @@
+# Dependency directories
+node_modules/
+jspm_packages/
+web_modules/
+
+# Local databases & SQLite
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Log files
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+*.log
+
+# Operating System files
+.DS_Store
+Thumbs.db
+
+# IDEs and editors
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Vercel local environment
+.vercel/
+
+# Caches
+.cache/
+.npm/
+.eslintcache
+.cache

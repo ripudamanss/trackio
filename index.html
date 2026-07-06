@@ -309,6 +309,14 @@ canvas{display:block;width:100%!important}
   cursor:pointer;font-size:12px;color:var(--text3);transition:all .2s;
 }
 .tx-del:hover{background:rgba(248,113,113,.1);border-color:rgba(248,113,113,.2);color:var(--red)}
+.tx-edit{
+  width:27px;height:27px;border-radius:8px;flex-shrink:0;
+  background:transparent;border:1px solid transparent;
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;font-size:12px;color:var(--text3);transition:all .2s;
+  margin-right:4px;
+}
+.tx-edit:hover{background:rgba(96,165,250,.1);border-color:rgba(96,165,250,.2);color:var(--blue)}
 .empty-state{text-align:center;padding:38px 20px}
 .empty-state .ei{font-size:44px;opacity:.35;margin-bottom:10px}
 .empty-state p{color:var(--text2);font-size:14px}
@@ -531,6 +539,9 @@ input[type="date"].fi::-webkit-calendar-picker-indicator{filter:invert(0.5);curs
       <button class="nav-item" onclick="showView('analytics',this)">
         <span class="nav-icon">📈</span>Analytics
       </button>
+      <button class="nav-item" onclick="showView('settings',this)">
+        <span class="nav-icon">⚙️</span>Settings
+      </button>
 
       <div class="sb-footer">
         <div class="user-card">
@@ -680,6 +691,46 @@ input[type="date"].fi::-webkit-calendar-picker-indicator{filter:invert(0.5);curs
         </div>
       </div>
 
+      <!-- SETTINGS VIEW -->
+      <div id="view-settings" class="view">
+        <div class="topbar">
+          <div class="topbar-l">
+            <h2>Settings</h2>
+            <p>Manage your account settings</p>
+          </div>
+        </div>
+        
+        <div class="tx-card" style="max-width: 480px; margin-bottom: 20px;">
+          <div class="cc-header" style="margin-bottom: 20px;">
+            <h3>Change Password</h3>
+          </div>
+          <div id="settings-err" class="m-err hidden" style="margin-bottom: 14px;"></div>
+          <div id="settings-success" class="toast success hidden" style="position: static; margin-bottom: 14px; max-width: none; animation: none;"></div>
+          
+          <div class="fg">
+            <label class="fl">Current Password</label>
+            <input type="password" id="set-curr-pass" class="fi" placeholder="Enter current password">
+          </div>
+          <div class="fg">
+            <label class="fl">New Password</label>
+            <input type="password" id="set-new-pass" class="fi" placeholder="Min 6 characters">
+          </div>
+          <div class="fg">
+            <label class="fl">Confirm New Password</label>
+            <input type="password" id="set-conf-pass" class="fi" placeholder="Repeat new password"
+              onkeydown="if(event.key==='Enter')changePassword()">
+          </div>
+          <button class="btn-prime" onclick="changePassword()" style="margin-top: 10px;">Update Password</button>
+        </div>
+
+        <div class="tx-card" style="max-width: 480px;">
+          <div class="cc-header" style="margin-bottom: 20px;">
+            <h3>Session</h3>
+          </div>
+          <button class="btn-prime" onclick="handleLogout()" style="background: linear-gradient(135deg, var(--red) 0%, #E11D48 100%); box-shadow: 0 6px 22px rgba(248,113,113,0.4);">Sign Out</button>
+        </div>
+      </div>
+
     </main>
   </div>
 
@@ -696,8 +747,8 @@ input[type="date"].fi::-webkit-calendar-picker-indicator{filter:invert(0.5);curs
       <button class="mnav-item" id="mn-analytics" onclick="showView('analytics',this,'mob')">
         <span class="mi">📈</span>Stats
       </button>
-      <button class="mnav-item" onclick="handleLogout()">
-        <span class="mi">↩</span>Logout
+      <button class="mnav-item" id="mn-settings" onclick="showView('settings',this,'mob')">
+        <span class="mi">⚙️</span>Settings
       </button>
     </div>
   </nav>
@@ -769,18 +820,11 @@ const CATS = [
 ];
 
 let CU = null; // current user
+let editTxId = null; // ID of transaction currently being edited
 let txType = 'expense';
 let selCat = 'food';
 let dashFilter = 'all';
 let allFilter  = 'all';
-
-/* ══════════════════════════════════════
-   STORAGE
-══════════════════════════════════════ */
-const getUsers   = () => JSON.parse(localStorage.getItem('tio_users') || '{}');
-const saveUsers  = u => localStorage.setItem('tio_users', JSON.stringify(u));
-const getUserData= u => { const users=getUsers(); return users[u] || {transactions:[]}; };
-const saveUD     = (u,d) => { const users=getUsers(); users[u]=d; saveUsers(users); };
 
 /* ══════════════════════════════════════
    AUTH
@@ -800,17 +844,26 @@ function showAuthErr(msg) {
 }
 function clearAuthErr() { document.getElementById('auth-err').classList.add('hidden'); }
 
-function handleLogin() {
+async function handleLogin() {
   const u = document.getElementById('l-user').value.trim();
   const p = document.getElementById('l-pass').value;
   if(!u||!p) return showAuthErr('Please fill all fields.');
-  const users=getUsers();
-  if(!users[u]) return showAuthErr('Account not found. Please sign up first.');
-  if(users[u].password !== btoa(p)) return showAuthErr('Incorrect password. Try again.');
-  CU = u; sessionStorage.setItem('tio_sess', u); initApp();
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: u, password: p })
+    });
+    const data = await res.json();
+    if (!res.ok) return showAuthErr(data.error || 'Login failed.');
+    CU = u;
+    initApp(data.name);
+  } catch (e) {
+    showAuthErr('Network error. Please try again.');
+  }
 }
 
-function handleSignup() {
+async function handleSignup() {
   const name = document.getElementById('s-name').value.trim();
   const u    = document.getElementById('s-user').value.trim().toLowerCase();
   const p    = document.getElementById('s-pass').value;
@@ -820,32 +873,97 @@ function handleSignup() {
   if(!/^[a-z0-9_]+$/.test(u)) return showAuthErr('Username: only lowercase letters, numbers, underscores.');
   if(p.length<6) return showAuthErr('Password must be at least 6 characters.');
   if(p!==c) return showAuthErr('Passwords do not match.');
-  const users=getUsers();
-  if(users[u]) return showAuthErr('Username already taken. Choose another.');
-  users[u] = {name, password:btoa(p), transactions:[]};
-  saveUsers(users);
-  CU = u; sessionStorage.setItem('tio_sess', u); initApp();
+  try {
+    const res = await fetch('/api/auth/signup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: u, password: p, name })
+    });
+    const data = await res.json();
+    if (!res.ok) return showAuthErr(data.error || 'Signup failed.');
+    CU = u;
+    initApp(data.name);
+  } catch (e) {
+    showAuthErr('Network error. Please try again.');
+  }
 }
 
-function handleLogout() {
-  sessionStorage.removeItem('tio_sess'); CU=null;
+async function handleLogout() {
+  try {
+    await fetch('/api/auth/logout', { method: 'POST' });
+  } catch (e) {
+    console.error('Logout API failed', e);
+  }
+  CU=null;
   document.getElementById('app-screen').classList.add('hidden');
   document.getElementById('auth-screen').classList.remove('hidden');
+}
+
+async function changePassword() {
+  const curr = document.getElementById('set-curr-pass').value;
+  const newP = document.getElementById('set-new-pass').value;
+  const conf = document.getElementById('set-conf-pass').value;
+  const errEl = document.getElementById('settings-err');
+  const succEl = document.getElementById('settings-success');
+  
+  errEl.classList.add('hidden');
+  succEl.classList.add('hidden');
+  
+  if (!curr || !newP || !conf) {
+    errEl.textContent = 'Please fill all fields.';
+    errEl.classList.remove('hidden');
+    return;
+  }
+  if (newP.length < 6) {
+    errEl.textContent = 'New password must be at least 6 characters.';
+    errEl.classList.remove('hidden');
+    return;
+  }
+  if (newP !== conf) {
+    errEl.textContent = 'New passwords do not match.';
+    errEl.classList.remove('hidden');
+    return;
+  }
+  
+  try {
+    const res = await fetch('/api/auth/change-password', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ currentPassword: curr, newPassword: newP })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      errEl.textContent = data.error || 'Failed to update password.';
+      errEl.classList.remove('hidden');
+      return;
+    }
+    
+    // Success
+    succEl.textContent = '🔑 Password updated successfully!';
+    succEl.classList.remove('hidden');
+    
+    // Clear inputs
+    document.getElementById('set-curr-pass').value = '';
+    document.getElementById('set-new-pass').value = '';
+    document.getElementById('set-conf-pass').value = '';
+  } catch (e) {
+    errEl.textContent = 'Network error. Please try again.';
+    errEl.classList.remove('hidden');
+  }
 }
 
 /* ══════════════════════════════════════
    APP INIT
 ══════════════════════════════════════ */
-function initApp() {
+function initApp(fullName) {
   document.getElementById('auth-screen').classList.add('hidden');
   document.getElementById('app-screen').classList.remove('hidden');
-  const users = getUsers();
-  const fullName = users[CU]?.name || CU;
-  document.getElementById('sb-name').textContent  = fullName;
-  document.getElementById('sb-ava').textContent   = fullName[0].toUpperCase();
+  const nameToDisplay = fullName || CU;
+  document.getElementById('sb-name').textContent  = nameToDisplay;
+  document.getElementById('sb-ava').textContent   = nameToDisplay[0].toUpperCase();
   const h=new Date().getHours();
   const gr=h<12?'Good morning':h<17?'Good afternoon':'Good evening';
-  document.getElementById('greeting-txt').textContent = gr+', '+fullName.split(' ')[0]+'! 👋';
+  document.getElementById('greeting-txt').textContent = gr+', '+nameToDisplay.split(' ')[0]+'! 👋';
   document.getElementById('m-date').value = new Date().toISOString().split('T')[0];
   buildCatGrid();
   showView('dash', document.querySelector('.nav-item'));
@@ -864,6 +982,19 @@ function showView(id, btn, mode) {
     document.querySelectorAll('.nav-item').forEach(b=>b.classList.remove('active'));
     if(btn) btn.classList.add('active');
   }
+  
+  // Clear settings inputs and feedback messages
+  const errEl = document.getElementById('settings-err');
+  const succEl = document.getElementById('settings-success');
+  if (errEl) errEl.classList.add('hidden');
+  if (succEl) succEl.classList.add('hidden');
+  const currPass = document.getElementById('set-curr-pass');
+  const newPass = document.getElementById('set-new-pass');
+  const confPass = document.getElementById('set-conf-pass');
+  if (currPass) currPass.value = '';
+  if (newPass) newPass.value = '';
+  if (confPass) confPass.value = '';
+
   refreshAll();
 }
 
@@ -880,6 +1011,8 @@ function closeModal() {
   document.getElementById('m-amt').value = '';
   document.getElementById('m-desc').value = '';
   txType = 'expense'; selCat = 'food';
+  editTxId = null;
+  document.querySelector('.modal-h h3').textContent = 'New Transaction';
   document.getElementById('t-exp').classList.add('active');
   document.getElementById('t-inc').classList.remove('active');
   buildCatGrid();
@@ -900,7 +1033,7 @@ function buildCatGrid() {
 }
 function selCatFn(id) { selCat=id; buildCatGrid(); }
 
-function saveTx() {
+async function saveTx() {
   const amt  = parseFloat(document.getElementById('m-amt').value);
   const desc = document.getElementById('m-desc').value.trim();
   const date = document.getElementById('m-date').value;
@@ -911,22 +1044,89 @@ function saveTx() {
   if(!date)          { errEl.textContent='Pick a date.';          errEl.classList.remove('hidden'); return; }
   errEl.classList.add('hidden');
   const cat = CATS.find(c=>c.id===selCat);
-  const tx = {id:Date.now().toString(), type:txType, amount:amt, desc, date, mode,
-    catId:cat.id, catEmoji:cat.emoji, catLabel:cat.label, catColor:cat.color};
-  const d = getUserData(CU);
-  d.transactions.unshift(tx);
-  saveUD(CU, d);
-  closeModal();
-  showToast(txType==='expense'?'💸 Expense added!':'💰 Income saved!', txType==='expense'?'err':'success');
-  refreshAll();
+  const txData = {
+    type: txType,
+    amount: amt,
+    desc,
+    date,
+    mode,
+    catId: cat.id,
+    catEmoji: cat.emoji,
+    catLabel: cat.label,
+    catColor: cat.color
+  };
+  try {
+    let res;
+    if (editTxId) {
+      res = await fetch('/api/transactions/' + editTxId, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(txData)
+      });
+    } else {
+      res = await fetch('/api/transactions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(txData)
+      });
+    }
+    
+    if (!res.ok) {
+      const errData = await res.json();
+      errEl.textContent = errData.error || 'Failed to save transaction.';
+      errEl.classList.remove('hidden');
+      return;
+    }
+    
+    closeModal();
+    showToast(editTxId ? '✏️ Transaction updated!' : (txType==='expense'?'💸 Expense added!':'💰 Income saved!'), txType==='expense'?'err':'success');
+    refreshAll();
+  } catch (e) {
+    errEl.textContent = 'Network error. Please try again.';
+    errEl.classList.remove('hidden');
+  }
 }
 
-function delTx(id) {
-  const d = getUserData(CU);
-  d.transactions = d.transactions.filter(t=>t.id!==id);
-  saveUD(CU, d);
-  showToast('🗑 Deleted', 'err');
-  refreshAll();
+async function editTx(id) {
+  try {
+    const res = await fetch('/api/transactions/' + id);
+    if (!res.ok) return showToast('Failed to fetch transaction details.', 'err');
+    const tx = await res.json();
+    
+    editTxId = tx.id;
+    txType = tx.type;
+    selCat = tx.catId;
+    
+    // Update modal inputs
+    document.getElementById('m-amt').value = tx.amount;
+    document.getElementById('m-desc').value = tx.desc;
+    document.getElementById('m-date').value = tx.date;
+    document.getElementById('m-mode').value = tx.mode;
+    
+    // Update UI elements
+    document.querySelector('.modal-h h3').textContent = 'Edit Transaction';
+    document.getElementById('t-exp').classList.toggle('active', txType==='expense');
+    document.getElementById('t-inc').classList.toggle('active', txType==='income');
+    buildCatGrid();
+    
+    // Open modal
+    document.getElementById('modal-overlay').classList.remove('hidden');
+  } catch (e) {
+    showToast('Failed to load transaction.', 'err');
+  }
+}
+
+async function delTx(id) {
+  try {
+    const res = await fetch('/api/transactions/' + id, {
+      method: 'DELETE'
+    });
+    if (!res.ok) throw new Error('Delete failed');
+    showToast('🗑 Deleted', 'err');
+    refreshAll();
+  } catch (e) {
+    showToast('Failed to delete transaction.', 'err');
+  }
 }
 
 /* ══════════════════════════════════════
@@ -944,30 +1144,41 @@ function fmtDate(d) { return new Date(d).toLocaleDateString('en-IN',{day:'numeri
 /* ══════════════════════════════════════
    RENDER
 ══════════════════════════════════════ */
-function refreshAll() {
+async function refreshAll() {
   if(!CU) return;
-  const txs = getUserData(CU).transactions || [];
-  const st  = getStats(txs);
-  document.getElementById('s-bal').textContent = (st.bal<0?'-':'')+fmt(st.bal);
-  document.getElementById('s-inc').textContent = fmt(st.inc);
-  document.getElementById('s-exp').textContent = fmt(st.exp);
-  // Analytics extra
-  const exps = txs.filter(t=>t.type==='expense');
-  const incs = txs.filter(t=>t.type==='income');
-  const days = Math.max(new Set(exps.map(t=>t.date)).size, 1);
-  document.getElementById('an-daily').textContent = fmt(st.exp/days);
-  document.getElementById('an-bi').textContent = fmt(incs.length ? Math.max(...incs.map(t=>t.amount)) : 0);
-  document.getElementById('an-be').textContent = fmt(exps.length ? Math.max(...exps.map(t=>t.amount)) : 0);
-  // Lists
-  renderList('tx-dash', txs.slice(0,12), dashFilter);
-  renderList('tx-all',  txs,             allFilter);
-  // Charts
-  drawDonut(txs);
-  setTimeout(() => {
-    drawBar(txs);
-    drawLine(txs);
-    drawHBar(txs);
-  }, 50);
+  try {
+    const res = await fetch('/api/transactions');
+    if (!res.ok) {
+      if (res.status === 401) {
+        handleLogout();
+      }
+      return;
+    }
+    const txs = await res.json();
+    const st  = getStats(txs);
+    document.getElementById('s-bal').textContent = (st.bal<0?'-':'')+fmt(st.bal);
+    document.getElementById('s-inc').textContent = fmt(st.inc);
+    document.getElementById('s-exp').textContent = fmt(st.exp);
+    // Analytics extra
+    const exps = txs.filter(t=>t.type==='expense');
+    const incs = txs.filter(t=>t.type==='income');
+    const days = Math.max(new Set(exps.map(t=>t.date)).size, 1);
+    document.getElementById('an-daily').textContent = fmt(st.exp/days);
+    document.getElementById('an-bi').textContent = fmt(incs.length ? Math.max(...incs.map(t=>t.amount)) : 0);
+    document.getElementById('an-be').textContent = fmt(exps.length ? Math.max(...exps.map(t=>t.amount)) : 0);
+    // Lists
+    renderList('tx-dash', txs.slice(0,12), dashFilter);
+    renderList('tx-all',  txs,             allFilter);
+    // Charts
+    drawDonut(txs);
+    setTimeout(() => {
+      drawBar(txs);
+      drawLine(txs);
+      drawHBar(txs);
+    }, 50);
+  } catch (e) {
+    console.error('Failed to refresh data', e);
+  }
 }
 
 function renderList(id, txs, filter) {
@@ -977,17 +1188,19 @@ function renderList(id, txs, filter) {
     el.innerHTML = '<div class="empty-state"><div class="ei">🧾</div><p>No transactions found.</p></div>';
     return;
   }
-  el.innerHTML = list.map((t,i) =>
-    '<div class="tx-item" style="animation-delay:'+i*.035+'s">'
-    +'<div class="tx-ico" style="background:'+t.catColor+'18">'+t.catEmoji+'</div>'
-    +'<div class="tx-det">'
-    +'<div class="tx-name">'+esc(t.desc)+'</div>'
-    +'<div class="tx-meta">'+t.catLabel+' · '+fmtDate(t.date)+' · '+t.mode+'</div>'
-    +'</div>'
-    +'<div class="tx-amt '+t.type+'">'+(t.type==='income'?'+':'-')+'₹'+t.amount.toLocaleString('en-IN')+'</div>'
-    +'<button class="tx-del" onclick="delTx(\''+t.id+'\')" title="Delete">✕</button>'
-    +'</div>'
-  ).join('');
+  el.innerHTML = list.map((t,i) => {
+    const emoji = t.type === 'income' ? '💸' : t.catEmoji;
+    return '<div class="tx-item" style="animation-delay:'+i*.035+'s">'
+      +'<div class="tx-ico" style="background:'+t.catColor+'18">'+emoji+'</div>'
+      +'<div class="tx-det">'
+      +'<div class="tx-name">'+esc(t.desc)+'</div>'
+      +'<div class="tx-meta">'+t.catLabel+' · '+fmtDate(t.date)+' · '+t.mode+'</div>'
+      +'</div>'
+      +'<div class="tx-amt '+t.type+'">'+(t.type==='income'?'+':'-')+'₹'+t.amount.toLocaleString('en-IN')+'</div>'
+      +'<button class="tx-edit" onclick="editTx(\''+t.id+'\')" title="Edit">✏️</button>'
+      +'<button class="tx-del" onclick="delTx(\''+t.id+'\')" title="Delete">✕</button>'
+      +'</div>';
+  }).join('');
 }
 
 function setFilter(ctx, f, btn) {
@@ -1237,12 +1450,17 @@ window.addEventListener('resize', ()=>{
   rTimer=setTimeout(()=>{if(CU) refreshAll();}, 200);
 });
 
-/* ══════════════════════════════════════
-   AUTO SESSION
-══════════════════════════════════════ */
-(function() {
-  const s=sessionStorage.getItem('tio_sess');
-  if(s && getUsers()[s]) { CU=s; initApp(); }
+(async function() {
+  try {
+    const res = await fetch('/api/auth/session');
+    if (res.ok) {
+      const data = await res.json();
+      CU = data.username;
+      initApp(data.name);
+    }
+  } catch (e) {
+    console.error('Session check failed', e);
+  }
 })();
 </script>
 </body>
