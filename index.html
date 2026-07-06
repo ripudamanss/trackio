@@ -773,8 +773,8 @@ input[type="date"].fi::-webkit-calendar-picker-indicator{filter:invert(0.5);curs
     </div>
 
     <div class="fg">
-      <label class="fl">Description</label>
-      <input type="text" id="m-desc" class="fi" placeholder="What was this for?">
+      <label class="fl">Description (Optional)</label>
+      <input type="text" id="m-desc" class="fi" placeholder="What was this for? (Optional)">
     </div>
 
     <div class="fg">
@@ -1041,7 +1041,6 @@ async function saveTx() {
   const mode = document.getElementById('m-mode').value;
   const errEl= document.getElementById('m-err');
   if(!amt || amt<=0) { errEl.textContent='Enter a valid amount.'; errEl.classList.remove('hidden'); return; }
-  if(!desc)          { errEl.textContent='Add a description.';    errEl.classList.remove('hidden'); return; }
   if(!date)          { errEl.textContent='Pick a date.';          errEl.classList.remove('hidden'); return; }
   errEl.classList.add('hidden');
   const cat = CATS.find(c=>c.id===selCat);
@@ -1191,10 +1190,11 @@ function renderList(id, txs, filter) {
   }
   el.innerHTML = list.map((t,i) => {
     const emoji = t.type === 'income' ? '💸' : t.catEmoji;
+    const displayName = (t.desc && t.desc.trim()) ? t.desc : t.catLabel;
     return '<div class="tx-item" style="animation-delay:'+i*.035+'s">'
       +'<div class="tx-ico" style="background:'+t.catColor+'18">'+emoji+'</div>'
       +'<div class="tx-det">'
-      +'<div class="tx-name">'+esc(t.desc)+'</div>'
+      +'<div class="tx-name">'+esc(displayName)+'</div>'
       +'<div class="tx-meta">'+t.catLabel+' · '+fmtDate(t.date)+' · '+t.mode+'</div>'
       +'</div>'
       +'<div class="tx-amt '+t.type+'">'+(t.type==='income'?'+':'-')+'₹'+t.amount.toLocaleString('en-IN')+'</div>'
