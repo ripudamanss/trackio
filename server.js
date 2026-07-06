@@ -1,5 +1,5 @@
 const express = require('express');
-const { DatabaseSync } = require('node:sqlite');
+const { createClient } = require('@libsql/client');
 const crypto = require('node:crypto');
 const path = require('path');
 const os = require('node:os');
@@ -7,37 +7,50 @@ const os = require('node:os');
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Initialize SQLite database (use /tmp on Vercel as filesystem is read-only)
-const dbPath = process.env.VERCEL
-  ? path.join('/tmp', 'database.db')
-  : path.join(__dirname, 'database.db');
-const db = new DatabaseSync(dbPath);
+// Initialize SQLite/libSQL database client
+// Locally: uses file:database.db
+// Vercel (production): uses process.env.TURSO_DATABASE_URL to persist data in the cloud,
+// preventing data loss when serverless functions spin down or refresh.
+const dbUrl = process.env.VERCEL
+  ? (process.env.TURSO_DATABASE_URL || 'file:/tmp/database.db')
+  : (process.env.TURSO_DATABASE_URL || 'file:database.db');
+const dbAuthToken = process.env.TURSO_AUTH_TOKEN;
 
-// Create tables
-db.exec(`
-  CREATE TABLE IF NOT EXISTS users (
-    username TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    password TEXT NOT NULL
-  )
-`);
+const db = createClient({
+  url: dbUrl,
+  authToken: dbAuthToken
+});
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS transactions (
-    id TEXT PRIMARY KEY,
-    username TEXT NOT NULL,
-    type TEXT NOT NULL,
-    amount REAL NOT NULL,
-    desc TEXT NOT NULL,
-    date TEXT NOT NULL,
-    mode TEXT NOT NULL,
-    catId TEXT NOT NULL,
-    catEmoji TEXT NOT NULL,
-    catLabel TEXT NOT NULL,
-    catColor TEXT NOT NULL,
-    FOREIGN KEY(username) REFERENCES users(username)
-  )
-`);
+// Create tables asynchronously
+async function initDb() {
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS users (
+      username TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      password TEXT NOT NULL
+    )
+  `);
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS transactions (
+      id TEXT PRIMARY KEY,
+      username TEXT NOT NULL,
+      type TEXT NOT NULL,
+      amount REAL NOT NULL,
+      desc TEXT NOT NULL,
+      date TEXT NOT NULL,
+      mode TEXT NOT NULL,
+      catId TEXT NOT NULL,
+      catEmoji TEXT NOT NULL,
+      catLabel TEXT NOT NULL,
+      catColor TEXT NOT NULL,
+      FOREIGN KEY(username) REFERENCES users(username)
+    )
+  `);
+}
+initDb().catch(err => {
+  console.error('Database tables initialization failed:', err);
+});
 
 // Simple in-memory session store
 const sessions = new Map(); // token -> username
@@ -83,7 +96,7 @@ function requireAuth(req, res, next) {
 // API Routes
 
 // Signup
-app.post('/api/auth/signup', express.json(), (req, res) => {
+app.post('/api/auth/signup', express.json(), async (req, res) => {
   const { username, password, name } = req.body;
   if (!username || !password || !name) {
     return res.status(400).json({ error: 'Please fill all fields.' });
@@ -100,49 +113,66 @@ app.post('/api/auth/signup', express.json(), (req, res) => {
     return res.status(400).json({ error: 'Password must be at least 6 characters.' });
   }
   
-  const checkUser = db.prepare('SELECT username FROM users WHERE username = ?');
-  const existing = checkUser.get(uLower);
-  if (existing) {
-    return res.status(400).json({ error: 'Username already taken. Choose another.' });
+  try {
+    const existing = await db.execute({
+      sql: 'SELECT username FROM users WHERE username = ?',
+      args: [uLower]
+    });
+    if (existing.rows.length > 0) {
+      return res.status(400).json({ error: 'Username already taken. Choose another.' });
+    }
+    
+    const hashedPassword = hashPassword(password);
+    
+    await db.execute({
+      sql: 'INSERT INTO users (username, name, password) VALUES (?, ?, ?)',
+      args: [uLower, name.trim(), hashedPassword]
+    });
+    
+    // Create session
+    const token = crypto.randomBytes(32).toString('hex');
+    sessions.set(token, uLower);
+    
+    res.setHeader('Set-Cookie', `tio_session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000`);
+    res.json({ username: uLower, name: name.trim() });
+  } catch (e) {
+    console.error('Signup error:', e);
+    res.status(500).json({ error: 'Database error' });
   }
-  
-  const hashedPassword = hashPassword(password);
-  
-  const insertUser = db.prepare('INSERT INTO users (username, name, password) VALUES (?, ?, ?)');
-  insertUser.run(uLower, name.trim(), hashedPassword);
-  
-  // Create session
-  const token = crypto.randomBytes(32).toString('hex');
-  sessions.set(token, uLower);
-  
-  res.setHeader('Set-Cookie', `tio_session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000`);
-  res.json({ username: uLower, name: name.trim() });
 });
 
 // Login
-app.post('/api/auth/login', express.json(), (req, res) => {
+app.post('/api/auth/login', express.json(), async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) {
     return res.status(400).json({ error: 'Please fill all fields.' });
   }
   const uLower = username.trim().toLowerCase();
   
-  const getUser = db.prepare('SELECT * FROM users WHERE username = ?');
-  const user = getUser.get(uLower);
-  if (!user) {
-    return res.status(400).json({ error: 'Account not found. Please sign up first.' });
+  try {
+    const userRes = await db.execute({
+      sql: 'SELECT * FROM users WHERE username = ?',
+      args: [uLower]
+    });
+    const user = userRes.rows[0];
+    if (!user) {
+      return res.status(400).json({ error: 'Account not found. Please sign up first.' });
+    }
+    
+    if (!verifyPassword(password, user.password)) {
+      return res.status(400).json({ error: 'Incorrect password. Try again.' });
+    }
+    
+    // Create session
+    const token = crypto.randomBytes(32).toString('hex');
+    sessions.set(token, uLower);
+    
+    res.setHeader('Set-Cookie', `tio_session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000`);
+    res.json({ username: uLower, name: user.name });
+  } catch (e) {
+    console.error('Login error:', e);
+    res.status(500).json({ error: 'Database error' });
   }
-  
-  if (!verifyPassword(password, user.password)) {
-    return res.status(400).json({ error: 'Incorrect password. Try again.' });
-  }
-  
-  // Create session
-  const token = crypto.randomBytes(32).toString('hex');
-  sessions.set(token, uLower);
-  
-  res.setHeader('Set-Cookie', `tio_session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000`);
-  res.json({ username: uLower, name: user.name });
 });
 
 // Logout
@@ -155,20 +185,28 @@ app.post('/api/auth/logout', (req, res) => {
 });
 
 // Session check
-app.get('/api/auth/session', (req, res) => {
+app.get('/api/auth/session', async (req, res) => {
   if (!req.username) {
     return res.status(401).json({ error: 'No active session' });
   }
-  const getUser = db.prepare('SELECT name FROM users WHERE username = ?');
-  const user = getUser.get(req.username);
-  if (!user) {
-    return res.status(401).json({ error: 'User not found' });
+  try {
+    const userRes = await db.execute({
+      sql: 'SELECT name FROM users WHERE username = ?',
+      args: [req.username]
+    });
+    const user = userRes.rows[0];
+    if (!user) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+    res.json({ username: req.username, name: user.name });
+  } catch (e) {
+    console.error('Session check error:', e);
+    res.status(500).json({ error: 'Database error' });
   }
-  res.json({ username: req.username, name: user.name });
 });
 
 // Change password
-app.put('/api/auth/change-password', requireAuth, express.json(), (req, res) => {
+app.put('/api/auth/change-password', requireAuth, express.json(), async (req, res) => {
   const { currentPassword, newPassword } = req.body;
   if (!currentPassword || !newPassword) {
     return res.status(400).json({ error: 'Please fill all fields.' });
@@ -177,85 +215,126 @@ app.put('/api/auth/change-password', requireAuth, express.json(), (req, res) => 
     return res.status(400).json({ error: 'New password must be at least 6 characters.' });
   }
   
-  const getUser = db.prepare('SELECT password FROM users WHERE username = ?');
-  const user = getUser.get(req.username);
-  if (!user) {
-    return res.status(400).json({ error: 'User not found.' });
+  try {
+    const userRes = await db.execute({
+      sql: 'SELECT password FROM users WHERE username = ?',
+      args: [req.username]
+    });
+    const user = userRes.rows[0];
+    if (!user) {
+      return res.status(400).json({ error: 'User not found.' });
+    }
+    
+    if (!verifyPassword(currentPassword, user.password)) {
+      return res.status(400).json({ error: 'Incorrect current password.' });
+    }
+    
+    const hashedNew = hashPassword(newPassword);
+    await db.execute({
+      sql: 'UPDATE users SET password = ? WHERE username = ?',
+      args: [hashedNew, req.username]
+    });
+    
+    res.json({ success: true });
+  } catch (e) {
+    console.error('Change password error:', e);
+    res.status(500).json({ error: 'Database error' });
   }
-  
-  if (!verifyPassword(currentPassword, user.password)) {
-    return res.status(400).json({ error: 'Incorrect current password.' });
-  }
-  
-  const hashedNew = hashPassword(newPassword);
-  const updatePass = db.prepare('UPDATE users SET password = ? WHERE username = ?');
-  updatePass.run(hashedNew, req.username);
-  
-  res.json({ success: true });
 });
 
 // Get transactions
-app.get('/api/transactions', requireAuth, (req, res) => {
-  const getTx = db.prepare('SELECT * FROM transactions WHERE username = ? ORDER BY id DESC');
-  const rows = getTx.all(req.username);
-  res.json(rows);
+app.get('/api/transactions', requireAuth, async (req, res) => {
+  try {
+    const txRes = await db.execute({
+      sql: 'SELECT * FROM transactions WHERE username = ? ORDER BY id DESC',
+      args: [req.username]
+    });
+    res.json(txRes.rows);
+  } catch (e) {
+    console.error('Get transactions error:', e);
+    res.status(500).json({ error: 'Database error' });
+  }
 });
 
 // Get single transaction details
-app.get('/api/transactions/:id', requireAuth, (req, res) => {
-  const getTx = db.prepare('SELECT * FROM transactions WHERE id = ? AND username = ?');
-  const row = getTx.get(req.params.id, req.username);
-  if (!row) {
-    return res.status(404).json({ error: 'Transaction not found' });
+app.get('/api/transactions/:id', requireAuth, async (req, res) => {
+  try {
+    const txRes = await db.execute({
+      sql: 'SELECT * FROM transactions WHERE id = ? AND username = ?',
+      args: [req.params.id, req.username]
+    });
+    const row = txRes.rows[0];
+    if (!row) {
+      return res.status(404).json({ error: 'Transaction not found' });
+    }
+    res.json(row);
+  } catch (e) {
+    console.error('Get transaction details error:', e);
+    res.status(500).json({ error: 'Database error' });
   }
-  res.json(row);
 });
 
 // Create transaction
-app.post('/api/transactions', requireAuth, express.json(), (req, res) => {
+app.post('/api/transactions', requireAuth, express.json(), async (req, res) => {
   const { type, amount, desc, date, mode, catId, catEmoji, catLabel, catColor } = req.body;
-  if (!type || amount === undefined || amount <= 0 || !desc || !date || !mode || !catId || !catEmoji || !catLabel || !catColor) {
+  if (!type || amount === undefined || amount <= 0 || desc === undefined || !date || !mode || !catId || !catEmoji || !catLabel || !catColor) {
     return res.status(400).json({ error: 'Please enter valid details.' });
   }
   const id = Date.now().toString();
   
-  const insertTx = db.prepare(`
-    INSERT INTO transactions (id, username, type, amount, desc, date, mode, catId, catEmoji, catLabel, catColor)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-  insertTx.run(id, req.username, type, amount, desc, date, mode, catId, catEmoji, catLabel, catColor);
-  
-  res.json({ success: true, id });
+  try {
+    await db.execute({
+      sql: `INSERT INTO transactions (id, username, type, amount, desc, date, mode, catId, catEmoji, catLabel, catColor)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [id, req.username, type, amount, desc, date, mode, catId, catEmoji, catLabel, catColor]
+    });
+    res.json({ success: true, id });
+  } catch (e) {
+    console.error('Create transaction error:', e);
+    res.status(500).json({ error: 'Database error' });
+  }
 });
 
 // Update transaction
-app.put('/api/transactions/:id', requireAuth, express.json(), (req, res) => {
+app.put('/api/transactions/:id', requireAuth, express.json(), async (req, res) => {
   const { type, amount, desc, date, mode, catId, catEmoji, catLabel, catColor } = req.body;
-  if (!type || amount === undefined || amount <= 0 || !desc || !date || !mode || !catId || !catEmoji || !catLabel || !catColor) {
+  if (!type || amount === undefined || amount <= 0 || desc === undefined || !date || !mode || !catId || !catEmoji || !catLabel || !catColor) {
     return res.status(400).json({ error: 'Please enter valid details.' });
   }
   
-  const updateTx = db.prepare(`
-    UPDATE transactions
-    SET type = ?, amount = ?, desc = ?, date = ?, mode = ?, catId = ?, catEmoji = ?, catLabel = ?, catColor = ?
-    WHERE id = ? AND username = ?
-  `);
-  const info = updateTx.run(type, amount, desc, date, mode, catId, catEmoji, catLabel, catColor, req.params.id, req.username);
-  
-  if (info.changes === 0) {
-    return res.status(404).json({ error: 'Transaction not found or unauthorized.' });
+  try {
+    const info = await db.execute({
+      sql: `UPDATE transactions
+            SET type = ?, amount = ?, desc = ?, date = ?, mode = ?, catId = ?, catEmoji = ?, catLabel = ?, catColor = ?
+            WHERE id = ? AND username = ?`,
+      args: [type, amount, desc, date, mode, catId, catEmoji, catLabel, catColor, req.params.id, req.username]
+    });
+    
+    if (info.rowsAffected === 0) {
+      return res.status(404).json({ error: 'Transaction not found or unauthorized.' });
+    }
+    res.json({ success: true });
+  } catch (e) {
+    console.error('Update transaction error:', e);
+    res.status(500).json({ error: 'Database error' });
   }
-  res.json({ success: true });
 });
 
 // Delete transaction
-app.delete('/api/transactions/:id', requireAuth, (req, res) => {
-  const deleteTx = db.prepare('DELETE FROM transactions WHERE id = ? AND username = ?');
-  const info = deleteTx.run(req.params.id, req.username);
-  if (info.changes === 0) {
-    return res.status(404).json({ error: 'Transaction not found or unauthorized.' });
+app.delete('/api/transactions/:id', requireAuth, async (req, res) => {
+  try {
+    const info = await db.execute({
+      sql: 'DELETE FROM transactions WHERE id = ? AND username = ?',
+      args: [req.params.id, req.username]
+    });
+    if (info.rowsAffected === 0) {
+      return res.status(404).json({ error: 'Transaction not found or unauthorized.' });
+    }
+    res.json({ success: true });
+  } catch (e) {
+    console.error('Delete transaction error:', e);
+    res.status(500).json({ error: 'Database error' });
   }
-  res.json({ success: true });
 });
 
 // Serve frontend files
