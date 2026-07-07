@@ -349,7 +349,7 @@ async function loginAdmin() {
       errEl.classList.remove('hidden');
       return;
     }
-    showPanel();
+    window.location.reload();
   } catch (e) {
     errEl.textContent = 'Network error. Please try again.';
     errEl.classList.remove('hidden');
@@ -374,9 +374,7 @@ async function logoutAdmin() {
   try {
     await fetch('/api/auth/logout', { method: 'POST' });
   } catch (e) {}
-  document.getElementById('admin-panel').classList.add('hidden');
-  document.getElementById('admin-login-screen').classList.remove('hidden');
-  document.getElementById('a-pass').value = '';
+  window.location.reload();
 }
 
 async function searchUsers() {

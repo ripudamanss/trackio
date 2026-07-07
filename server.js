@@ -38,8 +38,14 @@ app.use((req, res, next) => {
   const parsed = {};
   cookies.split(';').forEach(c => {
     const parts = c.split('=');
-    if (parts.length === 2) {
-      parsed[parts[0].trim()] = parts[1].trim();
+    if (parts.length >= 2) {
+      const name = parts[0].trim();
+      let val = parts.slice(1).join('=').trim();
+      // Unquote if the value is wrapped in double quotes
+      if (val.startsWith('"') && val.endsWith('"')) {
+        val = val.slice(1, -1);
+      }
+      parsed[name] = val;
     }
   });
   req.sessionToken = parsed['tio_session'];
