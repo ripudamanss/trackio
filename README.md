@@ -2,6 +2,18 @@
 
 Trackio is a modern, premium, full-stack personal finance and expense tracker built with Node.js, Express, and SQLite/libSQL. It helps users manage their income and expenses, visualize their spending splits with dynamic canvas-based charts, and keep track of daily averages.
 
+## TEAM - NextByte
+## 👥 Team Members
+
+| Name |
+|------|
+| GORAV |
+| RIPUDAMAN |
+| KULWANT |
+| SUNIL |
+
+---
+
 ## 🚀 Key Features
 
 * **Full-Stack Architecture**: Dynamic server-side API endpoints replace client-side localStorage.
