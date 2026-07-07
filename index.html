@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Trackio — Smart Expense Tracker</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link rel="icon" href="/favicon.png" type="image/x-icon">
 <style>
 :root {
   --bg:      #07091A;
@@ -461,6 +462,35 @@ input[type="date"].fi::-webkit-calendar-picker-indicator{filter:invert(0.5);curs
 @media(min-width:769px){.mob-nav{display:none}}
 .view{display:none}
 .view.active{display:block}
+
+/* Inline Link Style */
+.inline-link{
+    color:var(--coral);
+    text-decoration:none;
+    font-weight:600;
+    position:relative;
+    transition:color .25s ease;
+}
+
+.inline-link::after{
+    content:"";
+    position:absolute;
+    left:0;
+    bottom:-2px;
+    width:0;
+    height:2px;
+    background:var(--coral);
+    transition:width .25s ease;
+}
+
+.inline-link:hover{
+    color:#ff6b77;
+}
+
+.inline-link:hover::after{
+    width:100%;
+}
+
 </style>
 </head>
 <body>
@@ -473,13 +503,14 @@ input[type="date"].fi::-webkit-calendar-picker-indicator{filter:invert(0.5);curs
         <div class="auth-icon">💸</div>
         <h1>Track<em>io</em></h1>
         <p>Your smart money companion</p>
+        <p>MADE BY TEAM - <a href="./about-us.html" class="inline-link">NEXTBYTE</a></p>
       </div>
 
       <div class="auth-tabs">
         <button class="auth-tab active" onclick="switchTab('login')">Sign In</button>
         <button class="auth-tab" onclick="switchTab('signup')">Sign Up</button>
       </div>
-
+    
       <div id="auth-err" class="auth-err hidden"></div>
 
       <div id="login-form" class="form-wrap">
