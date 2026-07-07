@@ -13,9 +13,45 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-// Simple in-memory session store
-const sessions = new Map(); // token -> username
+// Simple in-memory session store (username -> { username, lastActive })
+const sessions = new Map(); // For best-effort active online users display
 const forgotAttempts = new Map(); // username -> { count: number, lockUntil: number }
+
+const SESSION_SECRET = process.env.SESSION_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || 'default_fallback_secret_key_123';
+
+function createSessionToken(username) {
+  const payload = JSON.stringify({
+    username,
+    createdAt: Date.now()
+  });
+  const payloadBase64 = Buffer.from(payload).toString('base64url');
+  const signature = crypto.createHmac('sha256', SESSION_SECRET).update(payloadBase64).digest('base64url');
+  return `${payloadBase64}.${signature}`;
+}
+
+function verifySessionToken(token) {
+  if (!token) return null;
+  const parts = token.split('.');
+  if (parts.length !== 2) return null;
+  const [payloadBase64, signature] = parts;
+  
+  // Verify signature
+  const expectedSignature = crypto.createHmac('sha256', SESSION_SECRET).update(payloadBase64).digest('base64url');
+  if (signature !== expectedSignature) {
+    return null;
+  }
+  
+  try {
+    const payload = JSON.parse(Buffer.from(payloadBase64, 'base64url').toString('utf8'));
+    const SESSION_TIMEOUT = 15 * 60 * 1000; // 15 minutes session timeout
+    if (Date.now() - payload.createdAt > SESSION_TIMEOUT) {
+      return null; // Session expired
+    }
+    return payload;
+  } catch (e) {
+    return null;
+  }
+}
 
 // Helper functions for password hashing
 function hashPassword(password) {
@@ -50,17 +86,18 @@ app.use((req, res, next) => {
   });
   req.sessionToken = parsed['tio_session'];
   
-  const session = sessions.get(req.sessionToken);
-  const SESSION_TIMEOUT = 15 * 60 * 1000; // 15 minutes session timeout
-  
-  if (session) {
-    if (Date.now() - session.lastActive > SESSION_TIMEOUT) {
-      sessions.delete(req.sessionToken);
-      req.username = null;
-    } else {
-      session.lastActive = Date.now();
-      req.username = session.username;
-    }
+  const payload = verifySessionToken(req.sessionToken);
+  if (payload) {
+    req.username = payload.username;
+    // Rolling session refresh: issue a new cookie with updated timestamp
+    const newToken = createSessionToken(payload.username);
+    res.setHeader('Set-Cookie', `tio_session=${newToken}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000`);
+    
+    // Best-effort active sessions tracking in-memory
+    sessions.set(payload.username, {
+      username: payload.username,
+      lastActive: Date.now()
+    });
   } else {
     req.username = null;
   }
@@ -121,7 +158,23 @@ app.post('/api/auth/signup', express.json(), async (req, res) => {
     }
 
     if (existing && existing.length > 0) {
-      return res.status(400).json({ error: 'Username already taken. Choose another.' });
+      const suggestions = [];
+      let attempt = 0;
+      while (suggestions.length < 3 && attempt < 10) {
+        attempt++;
+        const candidate = `${uLower}${Math.floor(Math.random() * 900 + 100)}`;
+        const { data: candExist } = await supabase
+          .from('users')
+          .select('username')
+          .eq('username', candidate);
+          
+        if (!candExist || candExist.length === 0) {
+          if (!suggestions.includes(candidate)) {
+            suggestions.push(candidate);
+          }
+        }
+      }
+      return res.status(400).json({ error: 'Username already taken. Choose another.', suggestions });
     }
     
     const hashedPassword = hashPassword(password);
@@ -146,9 +199,7 @@ app.post('/api/auth/signup', express.json(), async (req, res) => {
     }
     
     // Create session
-    const token = crypto.randomBytes(32).toString('hex');
-    sessions.set(token, { username: uLower, lastActive: Date.now() });
-    
+    const token = createSessionToken(uLower);
     res.setHeader('Set-Cookie', `tio_session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000`);
     res.json({ username: uLower, name: name.trim(), forceReset: false });
   } catch (e) {
@@ -188,9 +239,7 @@ app.post('/api/auth/login', express.json(), async (req, res) => {
     }
     
     // Create session
-    const token = crypto.randomBytes(32).toString('hex');
-    sessions.set(token, { username: uLower, lastActive: Date.now() });
-    
+    const token = createSessionToken(uLower);
     res.setHeader('Set-Cookie', `tio_session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000`);
     res.json({ username: uLower, name: user.name, forceReset: !!user.force_reset });
   } catch (e) {
@@ -201,8 +250,9 @@ app.post('/api/auth/login', express.json(), async (req, res) => {
 
 // Logout
 app.post('/api/auth/logout', (req, res) => {
-  if (req.sessionToken) {
-    sessions.delete(req.sessionToken);
+  const payload = verifySessionToken(req.sessionToken);
+  if (payload) {
+    sessions.delete(payload.username);
   }
   res.setHeader('Set-Cookie', 'tio_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0');
   res.json({ success: true });
@@ -238,6 +288,109 @@ app.get('/api/auth/session', async (req, res) => {
     res.json({ username: req.username, name: user.name, forceReset: !!user.force_reset });
   } catch (e) {
     console.error('Session check error:', e);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// Profile retrieve
+app.get('/api/auth/profile', requireAuth, async (req, res) => {
+  try {
+    if (req.username === 'admin') {
+      return res.json({ name: 'Administrator', securityQuestion: 'default' });
+    }
+    const { data: users, error } = await supabase
+      .from('users')
+      .select('name, security_question')
+      .eq('username', req.username);
+    if (error || !users || users.length === 0) {
+      return res.status(404).json({ error: 'User profile not found.' });
+    }
+    res.json({
+      name: users[0].name,
+      securityQuestion: users[0].security_question
+    });
+  } catch (e) {
+    console.error('Get profile error:', e);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// Profile update
+app.put('/api/auth/profile', requireAuth, express.json(), async (req, res) => {
+  const { name, securityQuestion, securityAnswer } = req.body;
+  if (!name || !securityQuestion) {
+    return res.status(400).json({ error: 'Please fill name and security question.' });
+  }
+  try {
+    if (req.username === 'admin') {
+      return res.status(400).json({ error: 'Admin profile cannot be updated this way.' });
+    }
+    const updateData = {
+      name: name.trim(),
+      security_question: securityQuestion
+    };
+    if (securityAnswer && securityAnswer.trim()) {
+      updateData.security_answer = hashPassword(securityAnswer.trim().toLowerCase());
+    }
+    
+    const { error } = await supabase
+      .from('users')
+      .update(updateData)
+      .eq('username', req.username);
+      
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+    res.json({ success: true, name: updateData.name });
+  } catch (e) {
+    console.error('Update profile error:', e);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// Check username and suggest alternatives
+app.get('/api/auth/check-username', async (req, res) => {
+  const username = (req.query.username || '').trim().toLowerCase();
+  if (!username || username.length < 3 || !/^[a-z0-9_]+$/.test(username)) {
+    return res.json({ available: false, error: 'Invalid username format.' });
+  }
+  if (username === 'admin') {
+    return res.json({ available: false, error: 'Username is reserved.' });
+  }
+  
+  try {
+    const { data: existing, error } = await supabase
+      .from('users')
+      .select('username')
+      .eq('username', username);
+      
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+    
+    if (existing && existing.length > 0) {
+      const suggestions = [];
+      let attempt = 0;
+      while (suggestions.length < 3 && attempt < 10) {
+        attempt++;
+        const candidate = `${username}${Math.floor(Math.random() * 900 + 100)}`;
+        const { data: candExist } = await supabase
+          .from('users')
+          .select('username')
+          .eq('username', candidate);
+          
+        if (!candExist || candExist.length === 0) {
+          if (!suggestions.includes(candidate)) {
+            suggestions.push(candidate);
+          }
+        }
+      }
+      return res.json({ available: false, suggestions });
+    }
+    
+    res.json({ available: true });
+  } catch (e) {
+    console.error('Check username error:', e);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -484,8 +637,7 @@ app.post('/api/admin/login', express.json(), async (req, res) => {
       }
     }
 
-    const token = crypto.randomBytes(32).toString('hex');
-    sessions.set(token, { username: 'admin', lastActive: Date.now() });
+    const token = createSessionToken('admin');
     res.setHeader('Set-Cookie', `tio_session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000`);
     res.json({ username: 'admin', name: 'Administrator' });
   } catch (e) {

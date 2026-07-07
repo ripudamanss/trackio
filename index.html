@@ -534,7 +534,8 @@ input[type="date"].fi::-webkit-calendar-picker-indicator{filter:invert(0.5);curs
         </div>
         <div class="fg">
           <label class="fl">Username</label>
-          <input type="text" id="s-user" class="fi" placeholder="Letters, numbers, underscore" autocomplete="username">
+          <input type="text" id="s-user" class="fi" placeholder="Letters, numbers, underscore" autocomplete="username" oninput="checkUsernameDebounced()">
+          <div id="username-suggestions" style="font-size:12px; margin-top:5px; display:none; line-height: 1.5;"></div>
         </div>
         <div class="fg">
           <label class="fl">Password</label>
@@ -841,12 +842,38 @@ input[type="date"].fi::-webkit-calendar-picker-indicator{filter:invert(0.5);curs
           </div>
         </div>
         
+        <div id="settings-err" class="m-err hidden" style="max-width: 480px; margin-bottom: 14px;"></div>
+        <div id="settings-success" class="toast success hidden" style="position: static; margin-bottom: 14px; max-width: 480px; animation: none;"></div>
+
+        <!-- PROFILE DETAILS SECTION -->
+        <div class="tx-card" style="max-width: 480px; margin-bottom: 20px;">
+          <div class="cc-header" style="margin-bottom: 20px;">
+            <h3>Profile Details</h3>
+          </div>
+          <div class="fg">
+            <label class="fl">Full Name</label>
+            <input type="text" id="set-profile-name" class="fi" placeholder="Enter your full name">
+          </div>
+          <div class="fg">
+            <label class="fl">Security Question</label>
+            <select id="set-profile-question" class="fi" style="background: var(--surface); color: var(--text); cursor: pointer;">
+              <option value="What is your mother's maiden name?">What is your mother's maiden name?</option>
+              <option value="What was the name of your first pet?">What was the name of your first pet?</option>
+              <option value="What was your first school?">What was your first school?</option>
+              <option value="In what city were you born?">In what city were you born?</option>
+            </select>
+          </div>
+          <div class="fg">
+            <label class="fl">Security Answer (Leave blank to keep current)</label>
+            <input type="text" id="set-profile-answer" class="fi" placeholder="Enter new answer to question">
+          </div>
+          <button class="btn-prime" onclick="updateProfile()" style="margin-top: 10px;">Update Profile</button>
+        </div>
+        
         <div class="tx-card" style="max-width: 480px; margin-bottom: 20px;">
           <div class="cc-header" style="margin-bottom: 20px;">
             <h3>Change Password</h3>
           </div>
-          <div id="settings-err" class="m-err hidden" style="margin-bottom: 14px;"></div>
-          <div id="settings-success" class="toast success hidden" style="position: static; margin-bottom: 14px; max-width: none; animation: none;"></div>
           
           <div class="fg">
             <label class="fl">Current Password</label>
@@ -979,6 +1006,11 @@ function switchTab(tab) {
   document.getElementById('signup-form').classList.toggle('hidden', tab!=='signup');
   document.getElementById('forgot-form').classList.add('hidden');
   clearAuthErr();
+  const sugEl = document.getElementById('username-suggestions');
+  if (sugEl) {
+    sugEl.style.display = 'none';
+    sugEl.innerHTML = '';
+  }
 }
 
 function showAuthErr(msg) {
@@ -1028,12 +1060,65 @@ async function handleSignup() {
       body: JSON.stringify({ username: u, password: p, name, securityQuestion: sq, securityAnswer: sa })
     });
     const data = await res.json();
-    if (!res.ok) return showAuthErr(data.error || 'Signup failed.');
+    if (!res.ok) {
+      const sugEl = document.getElementById('username-suggestions');
+      if (data.suggestions && data.suggestions.length > 0) {
+        sugEl.style.color = 'var(--coral)';
+        sugEl.innerHTML = '✕ Username already taken. Try: ' + data.suggestions.map(s => 
+          `<span class="sug-badge" onclick="selectSuggestedUsername('${s}')" style="cursor:pointer; background:rgba(255,255,255,0.08); padding:2px 6px; border-radius:4px; margin-right:4px; font-weight:600; text-decoration:underline;">${s}</span>`
+        ).join('');
+        sugEl.style.display = 'block';
+        return showAuthErr('Username already taken. Choose another.');
+      } else {
+        return showAuthErr(data.error || 'Signup failed.');
+      }
+    }
     CU = u;
     initApp(data.name);
   } catch (e) {
     showAuthErr('Network error. Please try again.');
   }
+}
+
+let checkUsernameTimer;
+function checkUsernameDebounced() {
+  clearTimeout(checkUsernameTimer);
+  const u = document.getElementById('s-user').value.trim().toLowerCase();
+  const sugEl = document.getElementById('username-suggestions');
+  if (!u || u.length < 3 || !/^[a-z0-9_]+$/.test(u)) {
+    sugEl.style.display = 'none';
+    sugEl.innerHTML = '';
+    return;
+  }
+  
+  checkUsernameTimer = setTimeout(async () => {
+    try {
+      const res = await fetch('/api/auth/check-username?username=' + encodeURIComponent(u));
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.available) {
+        sugEl.style.color = 'var(--teal)';
+        sugEl.innerHTML = '✓ Username is available';
+        sugEl.style.display = 'block';
+      } else {
+        sugEl.style.color = 'var(--coral)';
+        let html = '✕ Username is taken.';
+        if (data.suggestions && data.suggestions.length > 0) {
+          html += ' Try: ' + data.suggestions.map(s => 
+            `<span class="sug-badge" onclick="selectSuggestedUsername('${s}')" style="cursor:pointer; background:rgba(255,255,255,0.08); padding:2px 6px; border-radius:4px; margin-right:4px; font-weight:600; text-decoration:underline;">${s}</span>`
+          ).join('');
+        }
+        sugEl.innerHTML = html;
+        sugEl.style.display = 'block';
+      }
+    } catch (e) {}
+  }, 400);
+}
+
+function selectSuggestedUsername(username) {
+  const input = document.getElementById('s-user');
+  input.value = username;
+  checkUsernameDebounced();
 }
 
 async function handleLogout() {
@@ -1142,8 +1227,81 @@ function showView(id, btn, mode) {
   if (currPass) currPass.value = '';
   if (newPass) newPass.value = '';
   if (confPass) confPass.value = '';
+  const setProfName = document.getElementById('set-profile-name');
+  const setProfAns = document.getElementById('set-profile-answer');
+  if (setProfName) setProfName.value = '';
+  if (setProfAns) setProfAns.value = '';
+
+  if (id === 'settings') {
+    loadProfileDetails();
+  }
 
   refreshAll();
+}
+
+async function loadProfileDetails() {
+  try {
+    const res = await fetch('/api/auth/profile');
+    if (!res.ok) return;
+    const data = await res.json();
+    document.getElementById('set-profile-name').value = data.name || '';
+    document.getElementById('set-profile-question').value = data.securityQuestion || "What is your mother's maiden name?";
+    document.getElementById('set-profile-answer').value = '';
+  } catch (e) {
+    console.error('Failed to load profile details:', e);
+  }
+}
+
+async function updateProfile() {
+  const name = document.getElementById('set-profile-name').value.trim();
+  const sq = document.getElementById('set-profile-question').value;
+  const sa = document.getElementById('set-profile-answer').value.trim();
+  
+  const errEl = document.getElementById('settings-err');
+  const succEl = document.getElementById('settings-success');
+  
+  errEl.classList.add('hidden');
+  succEl.classList.add('hidden');
+  
+  if (!name) {
+    errEl.textContent = 'Full Name is required.';
+    errEl.classList.remove('hidden');
+    return;
+  }
+  
+  try {
+    const res = await fetch('/api/auth/profile', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, securityQuestion: sq, securityAnswer: sa })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      errEl.textContent = data.error || 'Failed to update profile.';
+      errEl.classList.remove('hidden');
+      return;
+    }
+    
+    succEl.textContent = 'Profile updated successfully!';
+    succEl.classList.remove('hidden');
+    document.getElementById('set-profile-answer').value = '';
+    
+    // Update name displayed in the UI
+    const nameToDisplay = data.name || name;
+    const sbName = document.getElementById('sb-name');
+    const sbAva = document.getElementById('sb-ava');
+    const greetTxt = document.getElementById('greeting-txt');
+    if (sbName) sbName.textContent = nameToDisplay;
+    if (sbAva) sbAva.textContent = nameToDisplay[0].toUpperCase();
+    if (greetTxt) {
+      const h=new Date().getHours();
+      const gr=h<12?'Good morning':h<17?'Good afternoon':'Good evening';
+      greetTxt.textContent = gr+', '+nameToDisplay.split(' ')[0]+'! 👋';
+    }
+  } catch (e) {
+    errEl.textContent = 'Network error. Please try again.';
+    errEl.classList.remove('hidden');
+  }
 }
 
 /* ══════════════════════════════════════

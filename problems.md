@@ -1,1 +1,0 @@
-# Make it Friendly for vercel to deploy easily
