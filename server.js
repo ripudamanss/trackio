@@ -15,6 +15,7 @@ const supabase = createClient(
 
 // Simple in-memory session store
 const sessions = new Map(); // token -> username
+const forgotAttempts = new Map(); // username -> { count: number, lockUntil: number }
 
 // Helper functions for password hashing
 function hashPassword(password) {
@@ -42,7 +43,22 @@ app.use((req, res, next) => {
     }
   });
   req.sessionToken = parsed['tio_session'];
-  req.username = sessions.get(req.sessionToken);
+  
+  const session = sessions.get(req.sessionToken);
+  const SESSION_TIMEOUT = 15 * 60 * 1000; // 15 minutes session timeout
+  
+  if (session) {
+    if (Date.now() - session.lastActive > SESSION_TIMEOUT) {
+      sessions.delete(req.sessionToken);
+      req.username = null;
+    } else {
+      session.lastActive = Date.now();
+      req.username = session.username;
+    }
+  } else {
+    req.username = null;
+  }
+  
   next();
 });
 
@@ -54,12 +70,20 @@ function requireAuth(req, res, next) {
   next();
 }
 
+// Admin Authentication Middleware
+function requireAdmin(req, res, next) {
+  if (req.username !== 'admin') {
+    return res.status(403).json({ error: 'Forbidden. Admin access required.' });
+  }
+  next();
+}
+
 // API Routes
 
 // Signup
 app.post('/api/auth/signup', express.json(), async (req, res) => {
-  const { username, password, name } = req.body;
-  if (!username || !password || !name) {
+  const { username, password, name, securityQuestion, securityAnswer } = req.body;
+  if (!username || !password || !name || !securityQuestion || !securityAnswer) {
     return res.status(400).json({ error: 'Please fill all fields.' });
   }
   const uLower = username.trim().toLowerCase();
@@ -72,6 +96,9 @@ app.post('/api/auth/signup', express.json(), async (req, res) => {
   }
   if (password.length < 6) {
     return res.status(400).json({ error: 'Password must be at least 6 characters.' });
+  }
+  if (uLower === 'admin') {
+    return res.status(400).json({ error: 'Username "admin" is reserved.' });
   }
   
   try {
@@ -92,13 +119,17 @@ app.post('/api/auth/signup', express.json(), async (req, res) => {
     }
     
     const hashedPassword = hashPassword(password);
+    const hashedAnswer = hashPassword(securityAnswer.trim().toLowerCase());
     
     const { error: insertError } = await supabase
       .from('users')
       .insert({
         username: uLower,
         name: name.trim(),
-        password: hashedPassword
+        password: hashedPassword,
+        security_question: securityQuestion,
+        security_answer: hashedAnswer,
+        force_reset: false
       });
 
     if (insertError) {
@@ -110,10 +141,10 @@ app.post('/api/auth/signup', express.json(), async (req, res) => {
     
     // Create session
     const token = crypto.randomBytes(32).toString('hex');
-    sessions.set(token, uLower);
+    sessions.set(token, { username: uLower, lastActive: Date.now() });
     
     res.setHeader('Set-Cookie', `tio_session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000`);
-    res.json({ username: uLower, name: name.trim() });
+    res.json({ username: uLower, name: name.trim(), forceReset: false });
   } catch (e) {
     console.error('Signup error:', e);
     res.status(500).json({ error: 'Database error' });
@@ -152,10 +183,10 @@ app.post('/api/auth/login', express.json(), async (req, res) => {
     
     // Create session
     const token = crypto.randomBytes(32).toString('hex');
-    sessions.set(token, uLower);
+    sessions.set(token, { username: uLower, lastActive: Date.now() });
     
     res.setHeader('Set-Cookie', `tio_session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000`);
-    res.json({ username: uLower, name: user.name });
+    res.json({ username: uLower, name: user.name, forceReset: !!user.force_reset });
   } catch (e) {
     console.error('Login error:', e);
     res.status(500).json({ error: 'Database error' });
@@ -177,9 +208,14 @@ app.get('/api/auth/session', async (req, res) => {
     return res.status(401).json({ error: 'No active session' });
   }
   try {
+    // Admin session bypasses users table select
+    if (req.username === 'admin') {
+      return res.json({ username: 'admin', name: 'Administrator', forceReset: false });
+    }
+
     const { data: users, error: userError } = await supabase
       .from('users')
-      .select('name')
+      .select('name, force_reset')
       .eq('username', req.username);
 
     if (userError) {
@@ -193,7 +229,7 @@ app.get('/api/auth/session', async (req, res) => {
     if (!user) {
       return res.status(401).json({ error: 'User not found' });
     }
-    res.json({ username: req.username, name: user.name });
+    res.json({ username: req.username, name: user.name, forceReset: !!user.force_reset });
   } catch (e) {
     console.error('Session check error:', e);
     res.status(500).json({ error: 'Database error' });
@@ -203,7 +239,7 @@ app.get('/api/auth/session', async (req, res) => {
 // Change password
 app.put('/api/auth/change-password', requireAuth, express.json(), async (req, res) => {
   const { currentPassword, newPassword } = req.body;
-  if (!currentPassword || !newPassword) {
+  if (!newPassword) {
     return res.status(400).json({ error: 'Please fill all fields.' });
   }
   if (newPassword.length < 6) {
@@ -213,7 +249,7 @@ app.put('/api/auth/change-password', requireAuth, express.json(), async (req, re
   try {
     const { data: users, error: userError } = await supabase
       .from('users')
-      .select('password')
+      .select('password, force_reset')
       .eq('username', req.username);
 
     if (userError) {
@@ -228,14 +264,17 @@ app.put('/api/auth/change-password', requireAuth, express.json(), async (req, re
       return res.status(400).json({ error: 'User not found.' });
     }
     
-    if (!verifyPassword(currentPassword, user.password)) {
-      return res.status(400).json({ error: 'Incorrect current password.' });
+    // Bypass current password check if user is forced to reset
+    if (!user.force_reset) {
+      if (!currentPassword || !verifyPassword(currentPassword, user.password)) {
+        return res.status(400).json({ error: 'Incorrect current password.' });
+      }
     }
     
     const hashedNew = hashPassword(newPassword);
     const { error: updateError } = await supabase
       .from('users')
-      .update({ password: hashedNew })
+      .update({ password: hashedNew, force_reset: false })
       .eq('username', req.username);
 
     if (updateError) {
@@ -251,6 +290,420 @@ app.put('/api/auth/change-password', requireAuth, express.json(), async (req, re
     res.status(500).json({ error: 'Database error' });
   }
 });
+
+// Forgot Password Flow Endpoints
+
+app.post('/api/auth/forgot-question', express.json(), async (req, res) => {
+  const { username } = req.body;
+  if (!username) {
+    return res.status(400).json({ error: 'Please enter username.' });
+  }
+  const uLower = username.trim().toLowerCase();
+  
+  try {
+    const { data: users, error } = await supabase
+      .from('users')
+      .select('security_question')
+      .eq('username', uLower);
+
+    if (error) {
+      return res.status(500).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    const user = users && users[0];
+    if (!user || !user.security_question) {
+      return res.status(404).json({ error: 'User or security question not found.' });
+    }
+
+    res.json({ question: user.security_question });
+  } catch (e) {
+    console.error('Forgot question error:', e);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.post('/api/auth/forgot-verify', express.json(), async (req, res) => {
+  const { username, answer } = req.body;
+  if (!username || !answer) {
+    return res.status(400).json({ error: 'Please fill all fields.' });
+  }
+  const uLower = username.trim().toLowerCase();
+  
+  const attempts = forgotAttempts.get(uLower) || { count: 0, lockUntil: 0 };
+  if (attempts.lockUntil > Date.now()) {
+    const minLeft = Math.ceil((attempts.lockUntil - Date.now()) / 60000);
+    return res.status(429).json({ error: `Too many failed attempts. Try again in ${minLeft} minutes.` });
+  }
+
+  try {
+    const { data: users, error } = await supabase
+      .from('users')
+      .select('security_answer')
+      .eq('username', uLower);
+
+    if (error) {
+      return res.status(500).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    const user = users && users[0];
+    if (!user || !user.security_answer) {
+      return res.status(404).json({ error: 'Security answer not set for user.' });
+    }
+
+    if (!verifyPassword(answer.trim().toLowerCase(), user.security_answer)) {
+      attempts.count += 1;
+      if (attempts.count >= 5) {
+        attempts.lockUntil = Date.now() + 5 * 60 * 1000; // 5 min lock
+        attempts.count = 0;
+      }
+      forgotAttempts.set(uLower, attempts);
+      return res.status(400).json({ error: 'Incorrect answer. Try again.' });
+    }
+
+    attempts.count = 0;
+    forgotAttempts.set(uLower, attempts);
+    res.json({ success: true });
+  } catch (e) {
+    console.error('Forgot verify error:', e);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.post('/api/auth/forgot-reset', express.json(), async (req, res) => {
+  const { username, answer, newPassword } = req.body;
+  if (!username || !answer || !newPassword) {
+    return res.status(400).json({ error: 'Please fill all fields.' });
+  }
+  if (newPassword.length < 6) {
+    return res.status(400).json({ error: 'Password must be at least 6 characters.' });
+  }
+  const uLower = username.trim().toLowerCase();
+
+  try {
+    const { data: users, error } = await supabase
+      .from('users')
+      .select('security_answer')
+      .eq('username', uLower);
+
+    if (error) {
+      return res.status(500).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    const user = users && users[0];
+    if (!user || !user.security_answer) {
+      return res.status(404).json({ error: 'User or security answer not found.' });
+    }
+
+    if (!verifyPassword(answer.trim().toLowerCase(), user.security_answer)) {
+      return res.status(400).json({ error: 'Security answer verification failed.' });
+    }
+
+    const hashedNew = hashPassword(newPassword);
+    const { error: updateError } = await supabase
+      .from('users')
+      .update({ password: hashedNew, force_reset: false })
+      .eq('username', uLower);
+
+    if (updateError) {
+      return res.status(500).json({
+        success: false,
+        message: updateError.message
+      });
+    }
+
+    res.json({ success: true });
+  } catch (e) {
+    console.error('Forgot reset error:', e);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// Admin Panel API Endpoints
+
+app.post('/api/admin/login', express.json(), async (req, res) => {
+  const { username, password } = req.body;
+  const uLower = (username || '').trim().toLowerCase();
+  if (uLower !== 'admin') {
+    return res.status(400).json({ error: 'Invalid admin credentials.' });
+  }
+
+  try {
+    // Check if admin user exists in DB
+    const { data: users, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('username', 'admin');
+
+    if (error) {
+      return res.status(500).json({ success: false, message: error.message });
+    }
+
+    const adminUser = users && users[0];
+    if (adminUser) {
+      // Admin exists in DB, verify password
+      if (!verifyPassword(password, adminUser.password)) {
+        return res.status(400).json({ error: 'Invalid admin credentials.' });
+      }
+    } else {
+      // Admin does not exist in DB yet, verify against env variable or default
+      const defaultAdminPass = process.env.ADMIN_PASSWORD || 'admin123';
+      if (password !== defaultAdminPass) {
+        return res.status(400).json({ error: 'Invalid admin credentials.' });
+      }
+      
+      // Auto-insert admin user into DB so they exist for future logins and password updates
+      const hashedPass = hashPassword(password);
+      const { error: insertError } = await supabase
+        .from('users')
+        .insert({
+          username: 'admin',
+          name: 'Administrator',
+          password: hashedPass,
+          security_question: 'default',
+          security_answer: 'default',
+          force_reset: false
+        });
+
+      if (insertError) {
+        console.warn('Failed to auto-insert admin user:', insertError.message);
+      }
+    }
+
+    const token = crypto.randomBytes(32).toString('hex');
+    sessions.set(token, { username: 'admin', lastActive: Date.now() });
+    res.setHeader('Set-Cookie', `tio_session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000`);
+    res.json({ username: 'admin', name: 'Administrator' });
+  } catch (e) {
+    console.error('Admin login error:', e);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.get('/api/admin/users', requireAdmin, async (req, res) => {
+  try {
+    let query = supabase.from('users').select('username, name, force_reset');
+    if (req.query.search) {
+      query = query.ilike('username', `%${req.query.search.trim()}%`);
+    }
+    const { data: users, error } = await query;
+    if (error) {
+      return res.status(500).json({
+        success: false,
+        message: error.message
+      });
+    }
+    res.json(users);
+  } catch (e) {
+    console.error('Admin get users error:', e);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.post('/api/admin/reset-password', requireAdmin, express.json(), async (req, res) => {
+  const { username, newPassword, forceReset } = req.body;
+  if (!username || !newPassword) {
+    return res.status(400).json({ error: 'Please fill all fields.' });
+  }
+  if (newPassword.length < 6) {
+    return res.status(400).json({ error: 'Password must be at least 6 characters.' });
+  }
+
+  try {
+    const hashedPassword = hashPassword(newPassword);
+    const { error: updateError } = await supabase
+      .from('users')
+      .update({
+        password: hashedPassword,
+        force_reset: !!forceReset
+      })
+      .eq('username', username);
+
+    if (updateError) {
+      return res.status(500).json({
+        success: false,
+        message: updateError.message
+      });
+    }
+
+    // Insert into audit logs
+    const { error: logError } = await supabase
+      .from('audit_logs')
+      .insert({
+        action: 'password_reset',
+        target_user: username,
+        performed_by: 'admin'
+      });
+
+    if (logError) {
+      console.warn('Failed to insert audit log:', logError.message);
+    }
+
+    res.json({ success: true });
+  } catch (e) {
+    console.error('Admin reset password error:', e);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.get('/api/admin/audit-logs', requireAdmin, async (req, res) => {
+  try {
+    const { data: logs, error } = await supabase
+      .from('audit_logs')
+      .select('*')
+      .order('timestamp', { ascending: false })
+      .limit(100);
+
+    if (error) {
+      return res.status(500).json({
+        success: false,
+        message: error.message
+      });
+    }
+    res.json(logs);
+  } catch (e) {
+    console.error('Admin get audit logs error:', e);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.put('/api/admin/change-password', requireAdmin, express.json(), async (req, res) => {
+  const { newPassword } = req.body;
+  if (!newPassword) {
+    return res.status(400).json({ error: 'Please enter new password.' });
+  }
+  if (newPassword.length < 6) {
+    return res.status(400).json({ error: 'Password must be at least 6 characters.' });
+  }
+
+  try {
+    const hashedNew = hashPassword(newPassword);
+    
+    // Check if admin row exists, if not insert it, if yes update it
+    const { data: users, error: checkError } = await supabase
+      .from('users')
+      .select('username')
+      .eq('username', 'admin');
+
+    if (checkError) {
+      return res.status(500).json({ success: false, message: checkError.message });
+    }
+
+    let dbError;
+    if (users && users.length > 0) {
+      const { error } = await supabase
+        .from('users')
+        .update({ password: hashedNew })
+        .eq('username', 'admin');
+      dbError = error;
+    } else {
+      const { error } = await supabase
+        .from('users')
+        .insert({
+          username: 'admin',
+          name: 'Administrator',
+          password: hashedNew,
+          security_question: 'default',
+          security_answer: 'default',
+          force_reset: false
+        });
+      dbError = error;
+    }
+
+    if (dbError) {
+      return res.status(500).json({ success: false, message: dbError.message });
+    }
+
+    // Insert into audit logs
+    await supabase
+      .from('audit_logs')
+      .insert({
+        action: 'admin_password_change',
+        target_user: 'admin',
+        performed_by: 'admin'
+      });
+
+    res.json({ success: true });
+  } catch (e) {
+    console.error('Admin change password error:', e);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.get('/api/admin/active-sessions', requireAdmin, async (req, res) => {
+  const list = [];
+  const now = Date.now();
+  const SESSION_TIMEOUT = 15 * 60 * 1000;
+  
+  for (const [token, sess] of sessions.entries()) {
+    if (now - sess.lastActive > SESSION_TIMEOUT) {
+      sessions.delete(token);
+    } else {
+      list.push({
+        username: sess.username,
+        lastActive: sess.lastActive,
+        idleMinutes: Math.round((now - sess.lastActive) / 60000)
+      });
+    }
+  }
+  res.json({
+    activeCount: list.filter(s => s.username !== 'admin').length,
+    sessions: list
+  });
+});
+
+app.delete('/api/admin/users/:username', requireAdmin, async (req, res) => {
+  const username = req.params.username.trim().toLowerCase();
+  if (username === 'admin') {
+    return res.status(400).json({ error: 'Cannot delete the admin account.' });
+  }
+
+  try {
+    // Delete transactions first (due to foreign key constraint)
+    const { error: txError } = await supabase
+      .from('transactions')
+      .delete()
+      .eq('username', username);
+
+    if (txError) {
+      return res.status(500).json({ success: false, message: txError.message });
+    }
+
+    // Delete user
+    const { error: userError } = await supabase
+      .from('users')
+      .delete()
+      .eq('username', username);
+
+    if (userError) {
+      return res.status(500).json({ success: false, message: userError.message });
+    }
+
+    // Insert into audit logs
+    await supabase
+      .from('audit_logs')
+      .insert({
+        action: 'user_deletion',
+        target_user: username,
+        performed_by: 'admin'
+      });
+
+    res.json({ success: true });
+  } catch (e) {
+    console.error('Admin delete user error:', e);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// Transactions APIs
 
 // Get transactions
 app.get('/api/transactions', requireAuth, async (req, res) => {
@@ -379,6 +832,52 @@ app.put('/api/transactions/:id', requireAuth, express.json(), async (req, res) =
     res.json({ success: true });
   } catch (e) {
     console.error('Update transaction error:', e);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.put('/api/transactions/:id/toggle-complete', requireAuth, express.json(), async (req, res) => {
+  const { completed } = req.body;
+  try {
+    const { error } = await supabase
+      .from('transactions')
+      .update({ completed: !!completed })
+      .eq('id', req.params.id)
+      .eq('username', req.username);
+
+    if (error) {
+      return res.status(500).json({ success: false, message: error.message });
+    }
+    res.json({ success: true });
+  } catch (e) {
+    console.error('Toggle complete error:', e);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.put('/api/transactions/:id/pay-early', requireAuth, async (req, res) => {
+  try {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const date = String(d.getDate()).padStart(2, '0');
+    const todayStr = `${year}-${month}-${date}`;
+
+    const { error } = await supabase
+      .from('transactions')
+      .update({ 
+        completed: true,
+        date: todayStr
+      })
+      .eq('id', req.params.id)
+      .eq('username', req.username);
+
+    if (error) {
+      return res.status(500).json({ success: false, message: error.message });
+    }
+    res.json({ success: true, date: todayStr });
+  } catch (e) {
+    console.error('Pay early error:', e);
     res.status(500).json({ error: 'Database error' });
   }
 });

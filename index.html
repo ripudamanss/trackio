@@ -522,6 +522,7 @@ input[type="date"].fi::-webkit-calendar-picker-indicator{filter:invert(0.5);curs
           <label class="fl">Password</label>
           <input type="password" id="l-pass" class="fi" placeholder="Enter your password" autocomplete="current-password"
             onkeydown="if(event.key==='Enter')handleLogin()">
+          <a href="#" onclick="openForgotPassword()" style="display:inline-block; font-size:12px; color:var(--coral); margin-top:8px; text-decoration:none;">Forgot Password?</a>
         </div>
         <button class="btn-prime" onclick="handleLogin()">Sign In →</button>
       </div>
@@ -541,10 +542,60 @@ input[type="date"].fi::-webkit-calendar-picker-indicator{filter:invert(0.5);curs
         </div>
         <div class="fg">
           <label class="fl">Confirm Password</label>
-          <input type="password" id="s-conf" class="fi" placeholder="Repeat password" autocomplete="new-password"
-            onkeydown="if(event.key==='Enter')handleSignup()">
+          <input type="password" id="s-conf" class="fi" placeholder="Repeat password" autocomplete="new-password">
+        </div>
+        <div class="fg">
+          <label class="fl">Security Question</label>
+          <select id="s-question" class="fi" style="background: var(--surface); color: var(--text); cursor: pointer;">
+            <option value="What is your mother's maiden name?">What is your mother's maiden name?</option>
+            <option value="What was the name of your first pet?">What was the name of your first pet?</option>
+            <option value="What was your first school?">What was your first school?</option>
+            <option value="In what city were you born?">In what city were you born?</option>
+          </select>
+        </div>
+        <div class="fg">
+          <label class="fl">Security Answer</label>
+          <input type="text" id="s-answer" class="fi" placeholder="Answer to security question" onkeydown="if(event.key==='Enter')handleSignup()">
         </div>
         <button class="btn-prime" onclick="handleSignup()">Create Account →</button>
+      </div>
+
+      <!-- Forgot Password Form -->
+      <div id="forgot-form" class="form-wrap hidden">
+        <div id="forgot-step1">
+          <div class="fg">
+            <label class="fl">Username</label>
+            <input type="text" id="forgot-user" class="fi" placeholder="Enter your username">
+          </div>
+          <button class="btn-prime" onclick="verifyForgotUsername()">Verify Username →</button>
+        </div>
+        <div id="forgot-step2" class="hidden">
+          <div class="fg" style="margin-bottom:12px;">
+            <label class="fl" style="color:var(--teal);">Security Question</label>
+            <div id="forgot-question-display" style="font-size:14px; font-weight:600; padding:12px; background:var(--surface); border:1px solid var(--border); border-radius:var(--r-sm); color:var(--text);"></div>
+          </div>
+          <div class="fg">
+            <label class="fl">Your Answer</label>
+            <input type="text" id="forgot-answer" class="fi" placeholder="Enter security answer">
+          </div>
+          <button class="btn-prime" onclick="verifyForgotAnswer()">Verify Answer →</button>
+        </div>
+        <div id="forgot-step3" class="hidden">
+          <div class="fg">
+            <label class="fl">New Password</label>
+            <input type="password" id="forgot-newpass" class="fi" placeholder="Min 6 characters">
+          </div>
+          <div class="fg">
+            <label class="fl">Confirm New Password</label>
+            <input type="password" id="forgot-confpass" class="fi" placeholder="Repeat password">
+          </div>
+          <button class="btn-prime" onclick="submitForgotReset()">Reset Password →</button>
+        </div>
+        <a href="#" onclick="switchTab('login')" style="display:block; text-align:center; margin-top:15px; font-size:13px; color:var(--text2); text-decoration:none;">← Back to Sign In</a>
+      </div>
+
+      <div style="text-align:center; margin-top:20px; border-top:1px solid var(--border); padding-top:15px;">
+        <a href="/admin.html" style="color:var(--text2); font-size:13px; text-decoration:none; display:inline-flex; align-items:center; gap:5px;">🔑 Admin Console</a>
       </div>
     </div>
   </div>
@@ -566,6 +617,9 @@ input[type="date"].fi::-webkit-calendar-picker-indicator{filter:invert(0.5);curs
       </button>
       <button class="nav-item" onclick="showView('txns',this)">
         <span class="nav-icon">📋</span>Transactions
+      </button>
+      <button class="nav-item" onclick="showView('reminders',this)">
+        <span class="nav-icon">📅</span>Reminders
       </button>
       <button class="nav-item" onclick="showView('analytics',this)">
         <span class="nav-icon">📈</span>Analytics
@@ -668,10 +722,31 @@ input[type="date"].fi::-webkit-calendar-picker-indicator{filter:invert(0.5);curs
         <div class="tx-card">
           <div class="tx-header">
             <h3>Transaction History</h3>
-            <div class="filter-tabs">
-              <button class="ftab active" onclick="setFilter('all','all',this)">All</button>
-              <button class="ftab" onclick="setFilter('all','expense',this)">Expenses</button>
-              <button class="ftab" onclick="setFilter('all','income',this)">Income</button>
+            <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+              <!-- Search box -->
+              <input type="text" id="tx-search" class="fi" placeholder="🔍 Search..." oninput="refreshAll()" style="width:180px; padding:6px 12px; font-size:12px; margin-bottom:0;">
+              
+              <!-- Date Range & Preset filter -->
+              <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                <input type="date" id="tx-start-date" class="fi" onchange="onDateRangeChange()" style="width:130px; padding:6px 8px; font-size:12px; margin-bottom:0; cursor:pointer;" title="Start Date">
+                <span style="font-size:12px; color:var(--text3);">to</span>
+                <input type="date" id="tx-end-date" class="fi" onchange="onDateRangeChange()" style="width:130px; padding:6px 8px; font-size:12px; margin-bottom:0; cursor:pointer;" title="End Date">
+                
+                <select id="tx-preset-filter" class="fi" onchange="applyPresetFilter()" style="width:125px; padding:6px 8px; font-size:12px; margin-bottom:0; background:var(--bg3); color:var(--text); cursor:pointer;">
+                  <option value="custom">Custom Range</option>
+                  <option value="last3m">Last 3 Months</option>
+                  <option value="fy">Financial Year</option>
+                </select>
+
+                <button id="btn-clear-range" class="ftab hidden" onclick="clearRangeFilter()" style="padding:6px 10px; margin:0;" title="Clear Range">✕</button>
+              </div>
+
+              <!-- Tabs -->
+              <div class="filter-tabs" style="margin-bottom:0;">
+                <button class="ftab active" onclick="setFilter('all','all',this)">All</button>
+                <button class="ftab" onclick="setFilter('all','expense',this)">Expenses</button>
+                <button class="ftab" onclick="setFilter('all','income',this)">Income</button>
+              </div>
             </div>
           </div>
           <div class="tx-list" id="tx-all"></div>
@@ -719,6 +794,41 @@ input[type="date"].fi::-webkit-calendar-picker-indicator{filter:invert(0.5);curs
             <span class="cc-tag coral">Breakdown</span>
           </div>
           <canvas id="hbarC" style="height:250px"></canvas>
+        </div>
+      </div>
+
+      <!-- REMINDERS VIEW -->
+      <div id="view-reminders" class="view">
+        <div class="topbar">
+          <div class="topbar-l">
+            <h2>Upcoming Reminders</h2>
+            <p>Track incoming credits and monthly EMIs</p>
+          </div>
+          <div>
+            <button class="btn-add" onclick="openModalWithFutureDate()">＋ Add Reminder</button>
+          </div>
+        </div>
+        
+        <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 24px;">
+          <!-- Incoming Credits Card -->
+          <div class="tx-card">
+            <div class="tx-header">
+              <h3>📥 Incoming Credits (Take Payment)</h3>
+            </div>
+            <div id="upcoming-credits-list" class="tx-list">
+              <!-- Rendered dynamically -->
+            </div>
+          </div>
+          
+          <!-- Outgoing Debits Card -->
+          <div class="tx-card">
+            <div class="tx-header">
+              <h3>📤 Outgoing Debits (Give Monthly EMI)</h3>
+            </div>
+            <div id="upcoming-debits-list" class="tx-list">
+              <!-- Rendered dynamically -->
+            </div>
+          </div>
         </div>
       </div>
 
@@ -867,6 +977,7 @@ function switchTab(tab) {
   });
   document.getElementById('login-form').classList.toggle('hidden', tab!=='login');
   document.getElementById('signup-form').classList.toggle('hidden', tab!=='signup');
+  document.getElementById('forgot-form').classList.add('hidden');
   clearAuthErr();
 }
 
@@ -890,6 +1001,9 @@ async function handleLogin() {
     if (!res.ok) return showAuthErr(data.error || 'Login failed.');
     CU = u;
     initApp(data.name);
+    if (data.forceReset) {
+      document.getElementById('force-reset-overlay').classList.remove('hidden');
+    }
   } catch (e) {
     showAuthErr('Network error. Please try again.');
   }
@@ -900,7 +1014,9 @@ async function handleSignup() {
   const u    = document.getElementById('s-user').value.trim().toLowerCase();
   const p    = document.getElementById('s-pass').value;
   const c    = document.getElementById('s-conf').value;
-  if(!name||!u||!p||!c) return showAuthErr('Please fill all fields.');
+  const sq   = document.getElementById('s-question').value;
+  const sa   = document.getElementById('s-answer').value.trim();
+  if(!name||!u||!p||!c||!sq||!sa) return showAuthErr('Please fill all fields.');
   if(u.length<3) return showAuthErr('Username must be at least 3 characters.');
   if(!/^[a-z0-9_]+$/.test(u)) return showAuthErr('Username: only lowercase letters, numbers, underscores.');
   if(p.length<6) return showAuthErr('Password must be at least 6 characters.');
@@ -909,7 +1025,7 @@ async function handleSignup() {
     const res = await fetch('/api/auth/signup', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: u, password: p, name })
+      body: JSON.stringify({ username: u, password: p, name, securityQuestion: sq, securityAnswer: sa })
     });
     const data = await res.json();
     if (!res.ok) return showAuthErr(data.error || 'Signup failed.');
@@ -1033,15 +1149,39 @@ function showView(id, btn, mode) {
 /* ══════════════════════════════════════
    MODAL
 ══════════════════════════════════════ */
+function openModalWithFutureDate() {
+  openModal();
+  document.querySelector('.modal-h h3').textContent = 'New Upcoming Reminder';
+  const today = new Date();
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const tomorrowStr = tomorrow.toISOString().split('T')[0];
+  const dateInput = document.getElementById('m-date');
+  dateInput.min = tomorrowStr;
+  dateInput.removeAttribute('max');
+  dateInput.value = tomorrowStr;
+}
+
 function openModal() {
   document.getElementById('modal-overlay').classList.remove('hidden');
   setTimeout(() => document.getElementById('m-amt').focus(), 100);
+  
+  const todayStr = new Date().toISOString().split('T')[0];
+  const dateInput = document.getElementById('m-date');
+  dateInput.max = todayStr;
+  dateInput.removeAttribute('min');
+  dateInput.value = todayStr;
 }
 function closeModal() {
   document.getElementById('modal-overlay').classList.add('hidden');
   document.getElementById('m-err').classList.add('hidden');
   document.getElementById('m-amt').value = '';
   document.getElementById('m-desc').value = '';
+  
+  const dateInput = document.getElementById('m-date');
+  dateInput.removeAttribute('min');
+  dateInput.removeAttribute('max');
+  
   txType = 'expense'; selCat = 'food';
   editTxId = null;
   document.querySelector('.modal-h h3').textContent = 'New Transaction';
@@ -1073,6 +1213,21 @@ async function saveTx() {
   const errEl= document.getElementById('m-err');
   if(!amt || amt<=0) { errEl.textContent='Enter a valid amount.'; errEl.classList.remove('hidden'); return; }
   if(!date)          { errEl.textContent='Pick a date.';          errEl.classList.remove('hidden'); return; }
+  
+  const isReminderModal = document.querySelector('.modal-h h3').textContent.includes('Reminder');
+  const todayStr = new Date().toISOString().split('T')[0];
+  
+  if (isReminderModal && date <= todayStr) {
+    errEl.textContent = 'Reminders must be set for a future date (tomorrow or later).';
+    errEl.classList.remove('hidden');
+    return;
+  }
+  if (!isReminderModal && date > todayStr) {
+    errEl.textContent = 'Normal transactions cannot be set for a future date. Add it as a Reminder instead.';
+    errEl.classList.remove('hidden');
+    return;
+  }
+
   errEl.classList.add('hidden');
   const cat = CATS.find(c=>c.id===selCat);
   const txData = {
@@ -1134,8 +1289,24 @@ async function editTx(id) {
     document.getElementById('m-date').value = tx.date;
     document.getElementById('m-mode').value = tx.mode;
     
+    // Enforce calendar limits depending on if it is a reminder or not
+    const todayStr = new Date().toISOString().split('T')[0];
+    const isFuture = tx.date > todayStr;
+    const dateInput = document.getElementById('m-date');
+    if (isFuture) {
+      document.querySelector('.modal-h h3').textContent = 'Edit Upcoming Reminder';
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const tomorrowStr = tomorrow.toISOString().split('T')[0];
+      dateInput.min = tomorrowStr;
+      dateInput.removeAttribute('max');
+    } else {
+      document.querySelector('.modal-h h3').textContent = 'Edit Transaction';
+      dateInput.max = todayStr;
+      dateInput.removeAttribute('min');
+    }
+
     // Update UI elements
-    document.querySelector('.modal-h h3').textContent = 'Edit Transaction';
     document.getElementById('t-exp').classList.toggle('active', txType==='expense');
     document.getElementById('t-inc').classList.toggle('active', txType==='income');
     buildCatGrid();
@@ -1197,9 +1368,112 @@ async function refreshAll() {
     document.getElementById('an-daily').textContent = fmt(st.exp/days);
     document.getElementById('an-bi').textContent = fmt(incs.length ? Math.max(...incs.map(t=>t.amount)) : 0);
     document.getElementById('an-be').textContent = fmt(exps.length ? Math.max(...exps.map(t=>t.amount)) : 0);
+    // Filter transactions dynamically for History tab based on search input & date range
+    const searchVal = (document.getElementById('tx-search')?.value || '').trim().toLowerCase();
+    const startDateVal = document.getElementById('tx-start-date')?.value || '';
+    const endDateVal = document.getElementById('tx-end-date')?.value || '';
+    
+    // Toggle the clear button visibility
+    const clearRangeBtn = document.getElementById('btn-clear-range');
+    if (clearRangeBtn) {
+      clearRangeBtn.classList.toggle('hidden', !startDateVal && !endDateVal);
+    }
+
+    let historyTxs = txs;
+
+    // Apply start date filter if set
+    if (startDateVal) {
+      historyTxs = historyTxs.filter(t => t.date >= startDateVal);
+    }
+    // Apply end date filter if set
+    if (endDateVal) {
+      historyTxs = historyTxs.filter(t => t.date <= endDateVal);
+    }
+
+    // Apply keyword search if set
+    if (searchVal) {
+      const keywords = searchVal.split(/\s+/).filter(k => k.length > 0);
+      historyTxs = historyTxs.filter(t => {
+        return keywords.every(kw => {
+          const descMatch = (t.desc || '').toLowerCase().includes(kw);
+          const catMatch = (t.catLabel || '').toLowerCase().includes(kw);
+          const typeMatch = (t.type || '').toLowerCase().includes(kw);
+          const modeMatch = (t.mode || '').toLowerCase().includes(kw);
+          const amtMatch = String(t.amount).includes(kw);
+          const dateMatch = (t.date || '').toLowerCase().includes(kw);
+          return descMatch || catMatch || typeMatch || modeMatch || amtMatch || dateMatch;
+        });
+      });
+    }
+
     // Lists
     renderList('tx-dash', txs.slice(0,12), dashFilter);
-    renderList('tx-all',  txs,             allFilter);
+    renderList('tx-all',  historyTxs,          allFilter);
+
+    // Render Reminders View lists
+    const todayStr = new Date().toISOString().split('T')[0];
+    const upcomingCredits = txs.filter(t => t.type === 'income' && t.date > todayStr);
+    const upcomingDebits = txs.filter(t => t.type === 'expense' && t.date > todayStr);
+
+    const creditsContainer = document.getElementById('upcoming-credits-list');
+    const debitsContainer = document.getElementById('upcoming-debits-list');
+
+    if (creditsContainer) {
+      if (upcomingCredits.length === 0) {
+        creditsContainer.innerHTML = '<div style="color:var(--text3); text-align:center; padding:30px; font-size:14px;">No upcoming credits (incoming payments).</div>';
+      } else {
+        creditsContainer.innerHTML = upcomingCredits.map(t => {
+          const comp = !!t.completed;
+          return `<div class="tx-item" style="align-items: center;">`
+            + `<div class="tx-detail" style="align-items: center;">`
+            + `<input type="checkbox" onchange="toggleReminderComplete('${t.id}', this.checked, false)" style="margin-right: 12px; transform: scale(1.2); cursor: pointer;" ${comp ? 'checked' : ''}>`
+            + `<div class="tx-cat-icon" style="background: rgba(52,211,153,0.1); color: var(--green); ${comp ? 'opacity:0.5;' : ''}">💰</div>`
+            + `<div>`
+            + `<div class="tx-name" style="${comp ? 'text-decoration: line-through; opacity: 0.5;' : ''}">${esc(t.desc || t.catLabel)}</div>`
+            + `<div class="tx-meta" style="${comp ? 'opacity: 0.5;' : ''}">Due Date: ${fmtDate(t.date)} · ${t.mode}</div>`
+            + `</div>`
+            + `</div>`
+            + `<div style="text-align: right; ${comp ? 'opacity: 0.5;' : ''}">`
+            + `<div style="font-weight:700; color:var(--green); font-size:15px; ${comp ? 'text-decoration: line-through;' : ''}">₹${t.amount.toLocaleString('en-IN')}</div>`
+            + `<div style="display:flex; align-items:center; gap:6px; margin-top:4px; justify-content: flex-end;">`
+            + (comp ? `<span style="font-size:10px; color:var(--text3);">Completed</span>` : `<button class="btn-sec" onclick="payReminderEarly('${t.id}', false)" style="border-color:rgba(255,181,71,0.4); color:#FFB547; padding:2px 6px; font-size:9px; margin-top:0; border-radius:4px;" title="Pay early & update date to today">⚡ Pay Early</button>`)
+            + `</div>`
+            + `</div>`
+            + `</div>`;
+        }).join('');
+      }
+    }
+
+    if (debitsContainer) {
+      if (upcomingDebits.length === 0) {
+        debitsContainer.innerHTML = '<div style="color:var(--text3); text-align:center; padding:30px; font-size:14px;">No upcoming EMIs or debits.</div>';
+      } else {
+        debitsContainer.innerHTML = upcomingDebits.map(t => {
+          const comp = !!t.completed;
+          return `<div class="tx-item" style="align-items: center;">`
+            + `<div class="tx-detail" style="align-items: center;">`
+            + `<input type="checkbox" onchange="toggleReminderComplete('${t.id}', this.checked, false)" style="margin-right: 12px; transform: scale(1.2); cursor: pointer;" ${comp ? 'checked' : ''}>`
+            + `<div class="tx-cat-icon" style="background: rgba(255,79,94,0.1); color: var(--coral); ${comp ? 'opacity:0.5;' : ''}">💸</div>`
+            + `<div>`
+            + `<div class="tx-name" style="${comp ? 'text-decoration: line-through; opacity: 0.5;' : ''}">${esc(t.desc || t.catLabel)}</div>`
+            + `<div class="tx-meta" style="${comp ? 'opacity: 0.5;' : ''}">Due Date: ${fmtDate(t.date)} · ${t.mode}</div>`
+            + `</div>`
+            + `</div>`
+            + `<div style="text-align: right; ${comp ? 'opacity: 0.5;' : ''}">`
+            + `<div style="font-weight:700; color:var(--coral); font-size:15px; ${comp ? 'text-decoration: line-through;' : ''}">₹${t.amount.toLocaleString('en-IN')}</div>`
+            + `<div style="display:flex; align-items:center; gap:6px; margin-top:4px; justify-content: flex-end;">`
+            + (comp ? `<span style="font-size:10px; color:var(--text3);">Completed</span>` : `<button class="btn-sec" onclick="payReminderEarly('${t.id}', false)" style="border-color:rgba(255,181,71,0.4); color:#FFB547; padding:2px 6px; font-size:9px; margin-top:0; border-radius:4px;" title="Pay early & update date to today">⚡ Pay Early</button>`)
+            + `</div>`
+            + `</div>`
+            + `</div>`;
+        }).join('');
+      }
+    }
+
+    // Check for upcoming transactions reminder
+    if (!window.reminderShown) {
+      checkUpcomingReminders(txs);
+    }
     // Charts
     drawDonut(txs);
     setTimeout(() => {
@@ -1489,11 +1763,335 @@ window.addEventListener('resize', ()=>{
       const data = await res.json();
       CU = data.username;
       initApp(data.name);
+      if (data.forceReset) {
+        document.getElementById('force-reset-overlay').classList.remove('hidden');
+      }
     }
   } catch (e) {
     console.error('Session check failed', e);
   }
 })();
+
+// Initialize reminder shown flag
+window.reminderShown = false;
+
+// Forgot Password JS Logic
+function openForgotPassword() {
+  document.getElementById('login-form').classList.add('hidden');
+  document.getElementById('signup-form').classList.add('hidden');
+  document.getElementById('forgot-form').classList.remove('hidden');
+  
+  document.getElementById('forgot-step1').classList.remove('hidden');
+  document.getElementById('forgot-step2').classList.add('hidden');
+  document.getElementById('forgot-step3').classList.add('hidden');
+  document.getElementById('forgot-user').value = '';
+  document.getElementById('forgot-answer').value = '';
+  document.getElementById('forgot-newpass').value = '';
+  document.getElementById('forgot-confpass').value = '';
+  clearAuthErr();
+}
+
+async function verifyForgotUsername() {
+  const u = document.getElementById('forgot-user').value.trim();
+  if(!u) return showAuthErr('Please enter your username.');
+  clearAuthErr();
+  try {
+    const res = await fetch('/api/auth/forgot-question', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: u })
+    });
+    const data = await res.json();
+    if(!res.ok) return showAuthErr(data.error || 'Failed to retrieve question.');
+    
+    document.getElementById('forgot-question-display').textContent = data.question;
+    document.getElementById('forgot-step1').classList.add('hidden');
+    document.getElementById('forgot-step2').classList.remove('hidden');
+  } catch(e) {
+    showAuthErr('Network error. Try again.');
+  }
+}
+
+async function verifyForgotAnswer() {
+  const u = document.getElementById('forgot-user').value.trim();
+  const a = document.getElementById('forgot-answer').value.trim();
+  if(!a) return showAuthErr('Please enter the security answer.');
+  clearAuthErr();
+  try {
+    const res = await fetch('/api/auth/forgot-verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: u, answer: a })
+    });
+    const data = await res.json();
+    if(!res.ok) return showAuthErr(data.error || 'Incorrect answer.');
+    
+    document.getElementById('forgot-step2').classList.add('hidden');
+    document.getElementById('forgot-step3').classList.remove('hidden');
+  } catch(e) {
+    showAuthErr('Network error. Try again.');
+  }
+}
+
+async function submitForgotReset() {
+  const u = document.getElementById('forgot-user').value.trim();
+  const a = document.getElementById('forgot-answer').value.trim();
+  const p = document.getElementById('forgot-newpass').value;
+  const c = document.getElementById('forgot-confpass').value;
+  if(!p || !c) return showAuthErr('Please fill all password fields.');
+  if(p.length < 6) return showAuthErr('Password must be at least 6 characters.');
+  if(p !== c) return showAuthErr('Passwords do not match.');
+  clearAuthErr();
+  try {
+    const res = await fetch('/api/auth/forgot-reset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: u, answer: a, newPassword: p })
+    });
+    const data = await res.json();
+    if(!res.ok) return showAuthErr(data.error || 'Failed to reset password.');
+    
+    showAuthErr('Password successfully reset! You can now log in.');
+    setTimeout(() => {
+      switchTab('login');
+    }, 2000);
+  } catch(e) {
+    showAuthErr('Network error. Try again.');
+  }
+}
+
+// Force Password Change JS Logic
+async function handleForceResetPassword() {
+  const newPass = document.getElementById('force-new-pass').value;
+  const confPass = document.getElementById('force-conf-pass').value;
+  const errEl = document.getElementById('force-reset-err');
+  errEl.classList.add('hidden');
+
+  if (!newPass || !confPass) {
+    errEl.textContent = 'Please fill all fields.';
+    errEl.classList.remove('hidden');
+    return;
+  }
+  if (newPass.length < 6) {
+    errEl.textContent = 'New password must be at least 6 characters.';
+    errEl.classList.remove('hidden');
+    return;
+  }
+  if (newPass !== confPass) {
+    errEl.textContent = 'Passwords do not match.';
+    errEl.classList.remove('hidden');
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/auth/change-password', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ newPassword: newPass })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      errEl.textContent = data.error || 'Failed to update password.';
+      errEl.classList.remove('hidden');
+      return;
+    }
+    
+    showToast("Password updated successfully!");
+    document.getElementById('force-reset-overlay').classList.add('hidden');
+  } catch (e) {
+    errEl.textContent = 'Network error. Try again.';
+    errEl.classList.remove('hidden');
+  }
+}
+
+// Upcoming Reminders JS Logic
+function checkUpcomingReminders(txs) {
+  const todayStr = new Date().toISOString().split('T')[0];
+  const upcoming = txs.filter(t => t.date > todayStr && !t.completed);
+  if (upcoming.length > 0) {
+    window.reminderShown = true;
+    renderModalReminders(upcoming);
+    document.getElementById('reminder-overlay').classList.remove('hidden');
+  }
+}
+
+function renderModalReminders(upcoming) {
+  const listEl = document.getElementById('reminder-list');
+  listEl.innerHTML = upcoming.map(t => {
+    const isIncome = t.type === 'income';
+    const badgeColor = isIncome ? 'var(--green)' : 'var(--coral)';
+    const badgeText = isIncome ? '📥 CREDIT (Take Payment)' : '📤 DEBIT (Give Monthly EMI)';
+    const indicatorStyle = `background: ${badgeColor}15; color: ${badgeColor}; border: 1px solid ${badgeColor}30;`;
+    
+    const categoryLabel = t.catLabel || 'Other';
+    const actionText = isIncome ? 'Take payment from creditor' : 'Give payment / Monthly EMI';
+    
+    return `<div style="padding: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-sm); display: flex; flex-direction: column; gap: 8px;">`
+      + `<div style="display: flex; align-items: center; justify-content: space-between;">`
+      + `<div>`
+      + `<div style="font-weight: 600; font-size: 15px; color: var(--text);">${esc(t.desc || categoryLabel)}</div>`
+      + `<div style="font-size: 11px; color: var(--text3); margin-top: 2px;">Due Date: ${fmtDate(t.date)}</div>`
+      + `</div>`
+      + `<div style="text-align: right;">`
+      + `<div style="font-weight: 800; color: ${badgeColor}; font-size: 16px;">₹${t.amount.toLocaleString('en-IN')}</div>`
+      + `</div>`
+      + `</div>`
+      + `<div style="display: flex; align-items: center; justify-content: space-between; border-top: 1px dashed var(--border); padding-top: 8px;">`
+      + `<span style="font-size: 10px; font-weight: 700; padding: 4px 10px; border-radius: 99px; ${indicatorStyle}">${badgeText}</span>`
+      + `<div style="display: flex; gap: 6px;">`
+      + `<button class="btn-sec" onclick="payReminderEarly('${t.id}', true)" style="border-color:rgba(255,181,71,0.4); color:#FFB547; padding:4px 8px; font-size:10px; margin-top:0; border-radius:6px; display:inline-flex; align-items:center; gap:3px;" title="Pay early & update date to today">⚡ Pay Early</button>`
+      + `<button class="btn-sec" onclick="toggleReminderComplete('${t.id}', true, true)" style="border-color:rgba(52,211,153,0.4); color:var(--green); padding:4px 8px; font-size:10px; margin-top:0; border-radius:6px; display:inline-flex; align-items:center; gap:3px;">✓ Done</button>`
+      + `</div>`
+      + `</div>`
+      + `</div>`;
+  }).join('');
+}
+
+function closeReminderModal() {
+  document.getElementById('reminder-overlay').classList.add('hidden');
+}
+
+async function toggleReminderComplete(id, completed, isFromModal) {
+  try {
+    const res = await fetch(`/api/transactions/${id}/toggle-complete`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ completed })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      showToast(data.error || 'Failed to update reminder.', true);
+      return;
+    }
+    showToast(completed ? "Reminder marked as completed!" : "Reminder marked as active!");
+    
+    // Fetch fresh transactions and update UI
+    const txRes = await fetch('/api/transactions');
+    if (txRes.ok) {
+      const freshTxs = await txRes.json();
+      
+      if (isFromModal) {
+        const todayStr = new Date().toISOString().split('T')[0];
+        const upcoming = freshTxs.filter(t => t.date > todayStr && !t.completed);
+        if (upcoming.length === 0) {
+          closeReminderModal();
+        } else {
+          renderModalReminders(upcoming);
+        }
+      }
+    }
+    await refreshAll();
+  } catch (e) {
+    showToast("Network error. Try again.", true);
+  }
+}
+
+async function payReminderEarly(id, isFromModal) {
+  try {
+    const res = await fetch(`/api/transactions/${id}/pay-early`, {
+      method: 'PUT'
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      showToast(data.error || 'Failed to update transaction.', true);
+      return;
+    }
+    showToast("Paid early! Date updated to today.");
+    
+    if (isFromModal) {
+      const txRes = await fetch('/api/transactions');
+      if (txRes.ok) {
+        const freshTxs = await txRes.json();
+        const todayStr = new Date().toISOString().split('T')[0];
+        const upcoming = freshTxs.filter(t => t.date > todayStr && !t.completed);
+        if (upcoming.length === 0) {
+          closeReminderModal();
+        } else {
+          renderModalReminders(upcoming);
+        }
+      }
+    }
+    await refreshAll();
+  } catch (e) {
+    showToast("Network error. Try again.", true);
+  }
+}
+
+function onDateRangeChange() {
+  document.getElementById('tx-preset-filter').value = 'custom';
+  refreshAll();
+}
+
+function applyPresetFilter() {
+  const preset = document.getElementById('tx-preset-filter').value;
+  const startEl = document.getElementById('tx-start-date');
+  const endEl = document.getElementById('tx-end-date');
+  
+  if (preset === 'last3m') {
+    const end = new Date();
+    const start = new Date();
+    start.setMonth(start.getMonth() - 3);
+    startEl.value = start.toISOString().split('T')[0];
+    endEl.value = end.toISOString().split('T')[0];
+  } else if (preset === 'fy') {
+    const now = new Date();
+    let startYear, endYear;
+    if (now.getMonth() >= 3) {
+      startYear = now.getFullYear();
+      endYear = now.getFullYear() + 1;
+    } else {
+      startYear = now.getFullYear() - 1;
+      endYear = now.getFullYear();
+    }
+    startEl.value = `${startYear}-04-01`;
+    endEl.value = `${endYear}-03-31`;
+  }
+  refreshAll();
+}
+
+function clearRangeFilter() {
+  document.getElementById('tx-start-date').value = '';
+  document.getElementById('tx-end-date').value = '';
+  document.getElementById('tx-preset-filter').value = 'custom';
+  refreshAll();
+}
 </script>
+
+<!-- Upcoming Payments Reminder Modal Overlay -->
+<div id="reminder-overlay" class="modal-overlay hidden" onclick="if(event.target===this)closeReminderModal()">
+  <div class="modal">
+    <div class="modal-h">
+      <h3>📅 Upcoming Payments</h3>
+      <button class="modal-x" onclick="closeReminderModal()">✕</button>
+    </div>
+    <div id="reminder-list" style="display:flex; flex-direction:column; gap:10px; max-height:300px; overflow-y:auto; margin-bottom:20px;">
+      <!-- Dynamic list -->
+    </div>
+    <button class="btn-prime" onclick="closeReminderModal()">Dismiss</button>
+  </div>
+</div>
+
+<!-- Force Password Reset Modal Overlay -->
+<div id="force-reset-overlay" class="modal-overlay hidden" style="z-index: 2000;">
+  <div class="modal">
+    <div class="modal-h">
+      <h3>🔒 Password Change Required</h3>
+    </div>
+    <p style="font-size: 14px; color: var(--text2); margin-bottom: 20px;">
+      An administrator has requested that you change your password before accessing your account.
+    </p>
+    <div id="force-reset-err" class="auth-err hidden" style="margin-bottom: 14px;"></div>
+    <div class="fg">
+      <label class="fl">New Password</label>
+      <input type="password" id="force-new-pass" class="fi" placeholder="Min 6 characters">
+    </div>
+    <div class="fg">
+      <label class="fl">Confirm New Password</label>
+      <input type="password" id="force-conf-pass" class="fi" placeholder="Confirm new password">
+    </div>
+    <button class="btn-prime" onclick="handleForceResetPassword()">Change Password →</button>
+  </div>
+</div>
+
 </body>
 </html>

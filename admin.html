@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trackio Admin Console</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:      #07091A;
+  --bg2:     #0C0F22;
+  --bg3:     #10142A;
+  --surface: rgba(255,255,255,0.04);
+  --surf2:   rgba(255,255,255,0.07);
+  --border:  rgba(255,255,255,0.08);
+  --bord2:   rgba(255,255,255,0.14);
+  --coral:   #FF4F5E;
+  --coralD:  #cc3341;
+  --teal:    #00D9C5;
+  --text:    #F0F4FF;
+  --text2:   #8892B0;
+  --text3:   #4A5278;
+  --r-sm: 12px; --r-md: 18px; --r-lg: 24px; --r-xl: 32px;
+  --shadow: 0 12px 40px rgba(0,0,0,0.5);
+  --ease: cubic-bezier(0.4,0,0.2,1);
+  --spring: cubic-bezier(0.34,1.56,0.64,1);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{
+  font-family:'Outfit',sans-serif;
+  background:var(--bg);color:var(--text);
+  min-height:100vh;overflow-x:hidden;
+}
+body::before{
+  content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
+  background:
+    radial-gradient(ellipse 70% 55% at 5% 0%,rgba(255,79,94,.11) 0%,transparent 65%),
+    radial-gradient(ellipse 55% 45% at 95% 100%,rgba(0,217,197,.08) 0%,transparent 65%);
+}
+.hidden{display:none!important}
+
+/* ══════════ LOGIN CARD ══════════ */
+#admin-login-screen{
+  min-height:100vh;display:flex;
+  align-items:center;justify-content:center;
+  padding:24px;position:relative;z-index:1;
+}
+.auth-wrap{width:100%;max-width:430px;}
+.auth-card{
+  background:var(--bg2);border:1px solid var(--border);
+  border-radius:var(--r-xl);padding:44px 38px;
+  box-shadow:var(--shadow);
+  position:relative;
+}
+.auth-logo{text-align:center;margin-bottom:32px;}
+.auth-icon{
+  width:64px;height:64px;border-radius:20px;
+  background:linear-gradient(135deg,var(--coral),var(--coralD));
+  display:inline-flex;align-items:center;justify-content:center;
+  font-size:30px;box-shadow:0 8px 28px rgba(255,79,94,.45);margin-bottom:14px;
+}
+.auth-logo h1{
+  font-family:'Syne',sans-serif;font-size:30px;font-weight:800;letter-spacing:-.5px;
+}
+.auth-logo h1 em{color:var(--coral);font-style:normal}
+.auth-logo p{color:var(--text2);font-size:14px;margin-top:5px}
+
+.fg{margin-bottom:16px}
+.fl{
+  display:block;font-size:11px;font-weight:700;letter-spacing:.06em;
+  color:var(--text2);margin-bottom:7px;text-transform:uppercase;
+}
+.fi{
+  width:100%;padding:12px 15px;background:var(--surface);
+  border:1px solid var(--border);border-radius:var(--r-sm);
+  color:var(--text);font-family:'Outfit',sans-serif;font-size:15px;
+  outline:none;transition:all .2s var(--ease);
+}
+.fi:focus{border-color:var(--coral);background:rgba(255,79,94,0.05);}
+.btn-prime{
+  width:100%;padding:14px;
+  background:linear-gradient(135deg,var(--coral) 0%,#FF2D6B 100%);
+  border:none;border-radius:var(--r-sm);color:#fff;
+  font-family:'Syne',sans-serif;font-size:16px;font-weight:700;
+  cursor:pointer;margin-top:6px;
+  box-shadow:0 6px 22px rgba(255,79,94,.4);
+  transition:all .2s var(--ease);
+}
+.btn-prime:hover{transform:translateY(-2px);box-shadow:0 10px 30px rgba(255,79,94,.5)}
+.auth-err{
+  background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.3);
+  color:var(--red);font-size:13px;padding:10px 14px;
+  border-radius:var(--r-sm);margin-bottom:14px;
+  text-align:center;
+}
+
+/* ══════════ ADMIN DASHBOARD ══════════ */
+#admin-panel{
+  max-width:1000px;margin:40px auto;padding:24px;
+  position:relative;z-index:1;
+}
+.header{
+  display:flex;align-items:center;justify-content:space-between;
+  margin-bottom:32px;
+}
+.header h2{font-family:'Syne',sans-serif;font-size:28px;font-weight:800}
+.header h2 em{color:var(--coral);font-style:normal}
+.btn-sec{
+  padding:10px 18px;background:var(--surface);border:1px solid var(--border);
+  color:var(--text2);border-radius:var(--r-sm);font-weight:600;
+  cursor:pointer;font-family:'Outfit',sans-serif;transition:all .2s;
+}
+.btn-sec:hover{background:var(--surf2);color:var(--text)}
+
+.grid{
+  display:grid;grid-template-columns:1fr;gap:24px;
+}
+@media (min-width: 768px) {
+  .grid{grid-template-columns:3fr 2fr;}
+}
+
+.panel-card{
+  background:var(--bg2);border:1px solid var(--border);
+  border-radius:var(--r-lg);padding:28px;
+  box-shadow:var(--shadow);
+}
+.panel-card h3{
+  font-family:'Syne',sans-serif;font-size:18px;font-weight:700;
+  margin-bottom:20px;border-bottom:1px solid var(--border);padding-bottom:10px;
+}
+
+.search-wrap{
+  display:flex;gap:12px;margin-bottom:20px;
+}
+.user-list{
+  display:flex;flex-direction:column;gap:12px;
+}
+.user-item{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--r-sm);padding:16px;
+  display:flex;flex-direction:column;gap:12px;
+  transition:border-color .2s;
+}
+.user-item:hover{border-color:var(--bord2)}
+.user-meta{
+  display:flex;align-items:center;justify-content:space-between;
+}
+.user-name{font-weight:600;font-size:16px;}
+.user-sub{font-size:12px;color:var(--text2)}
+.reset-form{
+  display:flex;flex-direction:column;gap:10px;
+  background:rgba(0,0,0,0.15);padding:12px;border-radius:8px;
+  border:1px solid var(--border);
+}
+.reset-inputs{
+  display:flex;gap:10px;align-items:center;
+}
+.reset-inputs input{flex:1;}
+.checkbox-wrap{
+  display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text2);
+}
+
+.audit-table-wrap{
+  overflow-x:auto;
+}
+table{
+  width:100%;border-collapse:collapse;text-align:left;
+  font-size:14px;
+}
+th, td{
+  padding:12px;border-bottom:1px solid var(--border);
+}
+th{
+  color:var(--text2);font-weight:600;text-transform:uppercase;font-size:11px;letter-spacing:0.05em;
+}
+td{color:var(--text)}
+
+.toast{
+  position:fixed;bottom:24px;right:24px;
+  background:rgba(52,211,153,.15);border:1px solid var(--teal);
+  color:var(--text);padding:14px 20px;border-radius:var(--r-sm);
+  font-weight:500;box-shadow:var(--shadow);
+  animation:slideUp .3s var(--spring);z-index:1000;
+}
+.toast.err{
+  background:rgba(248,113,113,.15);border-color:var(--coral);
+}
+</style>
+</head>
+<body>
+
+<!-- TOAST NOTIFICATION -->
+<div id="toast" class="toast hidden"></div>
+
+<!-- ADMIN LOGIN SCREEN -->
+<div id="admin-login-screen">
+  <div class="auth-wrap">
+    <div class="auth-card">
+      <div class="auth-logo">
+        <div class="auth-icon">🔑</div>
+        <h1>Track<em>io</em> Admin</h1>
+        <p>Administrative Control Panel</p>
+      </div>
+      
+      <div id="login-err" class="auth-err hidden"></div>
+
+      <div class="fg">
+        <label class="fl">Admin Username</label>
+        <input type="text" id="a-user" class="fi" value="admin" disabled>
+      </div>
+      <div class="fg">
+        <label class="fl">Admin Password</label>
+        <input type="password" id="a-pass" class="fi" placeholder="Enter admin password" onkeydown="if(event.key==='Enter')loginAdmin()">
+      </div>
+      <button class="btn-prime" onclick="loginAdmin()">Authenticate →</button>
+      <div style="text-align:center; margin-top: 15px;">
+        <a href="/" style="color:var(--text2); font-size:13px; text-decoration:none;">← Return to Application</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ADMIN PANEL -->
+<div id="admin-panel" class="hidden">
+  <div class="header">
+    <h2>Track<em>io</em> Admin Panel</h2>
+    <div style="display:flex; gap:12px; align-items:center;">
+      <a href="/" class="btn-sec" style="text-decoration:none;">📱 Go to App</a>
+      <button class="btn-sec" onclick="logoutAdmin()">↩ Sign Out</button>
+    </div>
+  </div>
+
+  <div class="grid">
+    <!-- Left Column Stack -->
+    <div style="display:flex; flex-direction:column; gap:24px;">
+      <!-- Active Sessions Card -->
+      <div class="panel-card">
+        <h3>Active Users Online</h3>
+        <div style="display:flex; align-items:center; gap:12px; margin-bottom:15px;">
+          <span style="font-size:28px;">🟢</span>
+          <div>
+            <div id="active-users-count" style="font-size:24px; font-weight:800; font-family:'Syne',sans-serif; color:var(--teal);">0</div>
+            <div style="font-size:12px; color:var(--text2);">Active User Sessions (excluding Admin)</div>
+          </div>
+        </div>
+        <div id="active-sessions-list" style="display:flex; flex-direction:column; gap:8px; max-height:200px; overflow-y:auto; font-size:13px; border-top:1px solid var(--border); padding-top:12px;">
+          <!-- Rendered dynamically -->
+        </div>
+      </div>
+
+      <!-- User Management Section -->
+      <div class="panel-card">
+        <h3>Manage User Accounts</h3>
+        <div class="search-wrap">
+          <input type="text" id="u-search" class="fi" placeholder="Search by username..." oninput="searchUsers()">
+        </div>
+        
+        <div id="user-list-container" class="user-list">
+          <!-- Rendered dynamically -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Right Column Stack -->
+    <div style="display:flex; flex-direction:column; gap:24px;">
+      <!-- Change Admin Password Section -->
+      <div class="panel-card">
+        <h3>Change Admin Password</h3>
+        <div class="fg">
+          <label class="fl">New Admin Password</label>
+          <input type="password" id="adm-new-pass" class="fi" placeholder="Min 6 characters">
+        </div>
+        <div class="fg">
+          <label class="fl">Confirm Password</label>
+          <input type="password" id="adm-conf-pass" class="fi" placeholder="Repeat new password">
+        </div>
+        <button class="btn-prime" onclick="changeAdminPassword()" style="margin-top:5px; padding:12px; font-size:14px;">Update Password</button>
+      </div>
+
+      <!-- Audit Logs Section -->
+      <div class="panel-card">
+        <h3>Password Reset Audit Logs</h3>
+        <div class="audit-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Target User</th>
+                <th>Action</th>
+                <th>Action By</th>
+                <th>Date/Time</th>
+              </tr>
+            </thead>
+            <tbody id="audit-log-body">
+              <!-- Rendered dynamically -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Local Session Check
+let adminSession = false;
+
+window.addEventListener('DOMContentLoaded', async () => {
+  // Check if already authenticated as admin
+  try {
+    const res = await fetch('/api/auth/session');
+    if (res.ok) {
+      const data = await res.json();
+      if (data.username === 'admin') {
+        showPanel();
+        return;
+      }
+    }
+  } catch (e) {}
+  document.getElementById('admin-login-screen').classList.remove('hidden');
+});
+
+function showToast(msg, isErr=false) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast' + (isErr ? ' err' : '');
+  setTimeout(() => el.classList.add('hidden'), 3000);
+}
+
+async function loginAdmin() {
+  const password = document.getElementById('a-pass').value;
+  const errEl = document.getElementById('login-err');
+  errEl.classList.add('hidden');
+  
+  if(!password) {
+    errEl.textContent = 'Please enter password.';
+    errEl.classList.remove('hidden');
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/admin/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'admin', password })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      errEl.textContent = data.error || 'Authentication failed.';
+      errEl.classList.remove('hidden');
+      return;
+    }
+    showPanel();
+  } catch (e) {
+    errEl.textContent = 'Network error. Please try again.';
+    errEl.classList.remove('hidden');
+  }
+}
+
+let activeSessionsInterval;
+
+function showPanel() {
+  document.getElementById('admin-login-screen').classList.add('hidden');
+  document.getElementById('admin-panel').classList.remove('hidden');
+  searchUsers();
+  loadAuditLogs();
+  loadActiveSessions();
+  
+  clearInterval(activeSessionsInterval);
+  activeSessionsInterval = setInterval(loadActiveSessions, 10000);
+}
+
+async function logoutAdmin() {
+  clearInterval(activeSessionsInterval);
+  try {
+    await fetch('/api/auth/logout', { method: 'POST' });
+  } catch (e) {}
+  document.getElementById('admin-panel').classList.add('hidden');
+  document.getElementById('admin-login-screen').classList.remove('hidden');
+  document.getElementById('a-pass').value = '';
+}
+
+async function searchUsers() {
+  const searchVal = document.getElementById('u-search').value.trim();
+  try {
+    const res = await fetch('/api/admin/users?search=' + encodeURIComponent(searchVal));
+    if (!res.ok) {
+      if (res.status === 403) logoutAdmin();
+      return;
+    }
+    const users = await res.json();
+    renderUsers(users);
+  } catch (e) {
+    console.error("Search users failed", e);
+  }
+}
+
+function renderUsers(users) {
+  const container = document.getElementById('user-list-container');
+  // Filter out admin user from management list
+  const list = users.filter(u => u.username !== 'admin');
+  
+  if (list.length === 0) {
+    container.innerHTML = '<div style="color:var(--text3); text-align:center; padding:20px;">No users found.</div>';
+    return;
+  }
+
+  container.innerHTML = list.map(u => {
+    return `<div class="user-item">`
+      + `<div class="user-meta">`
+      + `<div>`
+      + `<div class="user-name">👤 ${esc(u.username)}</div>`
+      + `<div class="user-sub">Name: ${esc(u.name)} ${u.force_reset ? '<span style="color:var(--coral); font-weight:600;">(Forced Change Active)</span>' : ''}</div>`
+      + `</div>`
+      + `<button class="btn-sec" onclick="deleteUser('${u.username}')" style="border-color:rgba(255,79,94,0.4); color:var(--coral); padding:6px 12px; font-size:12px; margin-top:0; border-radius:8px;">✕ Delete Account</button>`
+      + `</div>`
+      + `<div class="reset-form">`
+      + `<div class="fl" style="margin-bottom:4px;">Reset Password</div>`
+      + `<div class="reset-inputs">`
+      + `<input type="text" id="reset-p-${u.username}" class="fi" style="padding: 8px 12px; font-size: 14px;" placeholder="New password">`
+      + `<button class="btn-prime" onclick="resetUserPassword('${u.username}')" style="margin-top:0; padding:8px 16px; font-size:14px; width:auto; white-space:nowrap;">Reset</button>`
+      + `</div>`
+      + `<div class="checkbox-wrap" style="margin-top:6px;">`
+      + `<input type="checkbox" id="force-${u.username}" checked>`
+      + `<label for="force-${u.username}">Force user to change password on next login</label>`
+      + `</div>`
+      + `</div>`
+      + `</div>`;
+  }).join('');
+}
+
+async function resetUserPassword(username) {
+  const newPassword = document.getElementById('reset-p-' + username).value;
+  const forceReset = document.getElementById('force-' + username).checked;
+
+  if (newPassword.length < 6) {
+    showToast("Password must be at least 6 characters.", true);
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/admin/reset-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, newPassword, forceReset })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      showToast(data.error || 'Failed to reset password.', true);
+      return;
+    }
+    showToast(`Password for "${username}" successfully reset!`);
+    document.getElementById('reset-p-' + username).value = '';
+    searchUsers();
+    loadAuditLogs();
+  } catch (e) {
+    showToast("Network error. Try again.", true);
+  }
+}
+
+async function deleteUser(username) {
+  if (!confirm(`Are you sure you want to permanently delete user "${username}"? This will delete all their transactions too.`)) {
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/admin/users/${username}`, {
+      method: 'DELETE'
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      showToast(data.error || 'Failed to delete user.', true);
+      return;
+    }
+    showToast(`User "${username}" successfully deleted!`);
+    searchUsers();
+    loadAuditLogs();
+  } catch (e) {
+    showToast("Network error. Try again.", true);
+  }
+}
+
+async function changeAdminPassword() {
+  const newPassword = document.getElementById('adm-new-pass').value;
+  const confPassword = document.getElementById('adm-conf-pass').value;
+
+  if (newPassword.length < 6) {
+    showToast("Password must be at least 6 characters.", true);
+    return;
+  }
+  if (newPassword !== confPassword) {
+    showToast("Passwords do not match.", true);
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/admin/change-password', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ newPassword })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      showToast(data.error || 'Failed to update admin password.', true);
+      return;
+    }
+    showToast("Admin password successfully updated!");
+    document.getElementById('adm-new-pass').value = '';
+    document.getElementById('adm-conf-pass').value = '';
+    loadAuditLogs();
+  } catch (e) {
+    showToast("Network error. Try again.", true);
+  }
+}
+
+async function loadAuditLogs() {
+  try {
+    const res = await fetch('/api/admin/audit-logs');
+    if (!res.ok) return;
+    const logs = await res.json();
+    const body = document.getElementById('audit-log-body');
+    if (logs.length === 0) {
+      body.innerHTML = '<tr><td colspan="4" style="text-align:center; color:var(--text3);">No audit logs yet.</td></tr>';
+      return;
+    }
+    body.innerHTML = logs.map(l => {
+      const dt = new Date(l.timestamp).toLocaleString();
+      let actionLabel = l.action;
+      let badgeStyle = 'background: rgba(255,255,255,0.08); padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight:600; display:inline-block;';
+      if (l.action === 'password_reset') {
+        actionLabel = 'Reset User Password';
+        badgeStyle += 'color: var(--teal); background: rgba(0,217,197,0.12);';
+      } else if (l.action === 'user_deletion') {
+        actionLabel = 'Deleted User Account';
+        badgeStyle += 'color: var(--coral); background: rgba(255,79,94,0.12);';
+      } else if (l.action === 'admin_password_change') {
+        actionLabel = 'Changed Admin Password';
+        badgeStyle += 'color: #FFB547; background: rgba(255,181,71,0.12);';
+      }
+      return `<tr>`
+        + `<td><strong>${esc(l.target_user)}</strong></td>`
+        + `<td><span style="${badgeStyle}">${esc(actionLabel)}</span></td>`
+        + `<td>${esc(l.performed_by)}</td>`
+        + `<td>${dt}</td>`
+        + `</tr>`;
+    }).join('');
+  } catch (e) {}
+}
+
+async function loadActiveSessions() {
+  try {
+    const res = await fetch('/api/admin/active-sessions');
+    if (!res.ok) {
+      if (res.status === 403) logoutAdmin();
+      return;
+    }
+    const data = await res.json();
+    
+    document.getElementById('active-users-count').textContent = data.activeCount;
+    
+    const listEl = document.getElementById('active-sessions-list');
+    const userSessions = data.sessions.filter(s => s.username !== 'admin');
+    
+    if (userSessions.length === 0) {
+      listEl.innerHTML = '<div style="color:var(--text3); text-align:center; padding:10px;">No other users active.</div>';
+      return;
+    }
+    
+    listEl.innerHTML = userSessions.map(s => {
+      const isIdle = s.idleMinutes > 0;
+      const statusText = isIdle ? `Idle for ${s.idleMinutes}m` : 'Active now';
+      const badgeStyle = isIdle ? 'background: rgba(255,255,255,0.06); color: var(--text3);' : 'background: rgba(0,217,197,0.1); color: var(--teal);';
+      
+      return `<div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid rgba(255,255,255,0.03);">`
+        + `<span style="font-weight:600;">👤 ${esc(s.username)}</span>`
+        + `<span style="font-size:11px; padding:2px 8px; border-radius:12px; ${badgeStyle}">${statusText}</span>`
+        + `</div>`;
+    }).join('');
+  } catch (e) {
+    console.error("Load active sessions failed", e);
+  }
+}
+
+function esc(str) {
+  if (!str) return '';
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+</script>
+</body>
+</html>
